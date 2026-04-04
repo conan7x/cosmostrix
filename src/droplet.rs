@@ -3,6 +3,7 @@
 use std::time::{Duration, Instant};
 
 use crate::cloud::{CharLoc, DrawCtx};
+use crate::constants::HEAD_LINGER_BRIGHTNESS_MS;
 use crate::frame::Frame;
 
 #[derive(Clone, Debug)]
@@ -148,7 +149,8 @@ impl Droplet {
             return true;
         }
         if let Some(stop) = self.head_stop_time {
-            return now.saturating_duration_since(stop) <= Duration::from_millis(100);
+            return now.saturating_duration_since(stop)
+                <= Duration::from_millis(HEAD_LINGER_BRIGHTNESS_MS);
         }
         false
     }

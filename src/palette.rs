@@ -158,6 +158,7 @@ fn colors_from_stops(mode: ColorMode, stops: &[(u8, u8, u8)], steps: usize) -> V
     colors_from_rgb(mode, &rgb)
 }
 
+#[must_use]
 pub fn build_palette(scheme: ColorScheme, mode: ColorMode, default_background: bool) -> Palette {
     let mut bg = if default_background {
         None

@@ -11,7 +11,11 @@ use crossterm::{
 };
 
 use crate::cell::Cell;
+use crate::constants::{DIRTY_THRESHOLD_RATIO, SHUTDOWN_TIMEOUT_SECS};
 use crate::frame::Frame;
+
+/// Dirty threshold ratio: if dirty cells >= total/N, do full redraw.
+/// (centralized in constants.rs, imported above)
 
 struct LastFrame {
     width: u16,
@@ -115,7 +119,8 @@ impl Terminal {
         let can_reuse_last = !needs_full_redraw && self.last.is_some();
         let total_cells = frame.width as usize * frame.height as usize;
         let dirty_count = frame.dirty_indices().len();
-        let dirty_is_large = total_cells > 0 && dirty_count >= (total_cells / 3);
+        let dirty_is_large =
+            total_cells > 0 && dirty_count >= (total_cells / DIRTY_THRESHOLD_RATIO);
         let do_full_redraw = !can_reuse_last || frame.is_dirty_all() || dirty_is_large;
 
         if do_full_redraw {
@@ -310,6 +315,11 @@ impl Drop for Terminal {
         let _ = self.stdout.execute(terminal::EnableLineWrap);
         let _ = self.stdout.execute(terminal::LeaveAlternateScreen);
         let _ = terminal::disable_raw_mode();
+        // Safety: spawn a force-exit timer in case flush blocks
+        std::thread::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_secs(SHUTDOWN_TIMEOUT_SECS));
+            std::process::exit(0);
+        });
         let _ = self.stdout.flush();
     }
 }
@@ -325,6 +335,7 @@ pub fn restore_terminal_best_effort() {
     let _ = out.flush();
 }
 
+#[must_use]
 pub fn blank_cell(bg: Option<Color>) -> Cell {
     Cell {
         ch: ' ',

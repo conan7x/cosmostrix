@@ -44,10 +44,12 @@ impl Frame {
         self.dirty.clear();
     }
 
+    #[must_use]
     pub fn is_dirty_all(&self) -> bool {
         self.dirty_all
     }
 
+    #[must_use]
     pub fn dirty_indices(&self) -> &[usize] {
         &self.dirty
     }
@@ -76,6 +78,7 @@ impl Frame {
         self.dirty.clear();
     }
 
+    #[must_use]
     pub fn index(&self, x: u16, y: u16) -> Option<usize> {
         if x >= self.width || y >= self.height {
             return None;
@@ -83,6 +86,7 @@ impl Frame {
         Some(y as usize * self.width as usize + x as usize)
     }
 
+    #[must_use]
     #[allow(dead_code)]
     pub fn get(&self, x: u16, y: u16) -> Option<&Cell> {
         self.index(x, y).map(|i| {
@@ -94,6 +98,7 @@ impl Frame {
         })
     }
 
+    #[must_use]
     pub fn cell_at_index(&self, i: usize) -> Cell {
         if self.cell_gen.get(i).copied() == Some(self.gen) {
             self.cells[i]

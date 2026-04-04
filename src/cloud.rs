@@ -9,6 +9,7 @@ use rand::{
     SeedableRng,
 };
 
+use crate::constants::*;
 use crate::{
     cell::Cell,
     frame::Frame,
@@ -17,6 +18,8 @@ use crate::{
 };
 
 use crate::droplet::Droplet;
+
+// --- Named constants are centralized in constants.rs ---
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CharLoc {
@@ -59,7 +62,7 @@ impl DrawCtx<'_> {
         if between <= 0.0 {
             return false;
         }
-        (since / between) <= 0.25
+        (since / between) <= GLITCH_BRIGHT_RATIO
     }
 
     fn is_dim(&self, now: Instant) -> bool {
@@ -76,7 +79,7 @@ impl DrawCtx<'_> {
         if between <= 0.0 {
             return true;
         }
-        (since / between) >= 0.75
+        (since / between) >= GLITCH_DIM_RATIO
     }
 
     pub fn is_glitched(&self, line: u16, col: u16) -> bool {
@@ -262,6 +265,8 @@ pub struct Cloud {
     message_border: bool,
     color_scheme: ColorScheme,
     default_background: bool,
+
+    last_reseed_time: Instant,
 }
 
 impl Cloud {
@@ -276,7 +281,7 @@ impl Cloud {
         color_scheme: ColorScheme,
     ) -> Self {
         let now = Instant::now();
-        let mt = StdRng::seed_from_u64(0x1234567);
+        let mt = StdRng::seed_from_u64(RNG_INITIAL_SEED);
 
         Self {
             lines: 25,
@@ -314,7 +319,7 @@ impl Cloud {
             mt,
             rand_chance: Uniform::new(0.0, 1.0).expect("valid range"),
             rand_line: Uniform::new_inclusive(0, 23).expect("valid range"),
-            rand_cpidx: Uniform::new_inclusive(0, 2047).expect("valid range"),
+            rand_cpidx: Uniform::new_inclusive(0, MAX_CHAR_POOL_IDX).expect("valid range"),
             rand_len: Uniform::new_inclusive(1, 23).expect("valid range"),
             rand_col: Uniform::new_inclusive(0, 79).expect("valid range"),
             rand_glitch_ms: Uniform::new_inclusive(300, 400).expect("valid range"),
@@ -334,6 +339,7 @@ impl Cloud {
             message_border: true,
             color_scheme,
             default_background,
+            last_reseed_time: now,
         }
     }
 
@@ -358,6 +364,7 @@ impl Cloud {
         self.force_draw_everything = true;
     }
 
+    #[must_use]
     pub fn color_scheme(&self) -> ColorScheme {
         self.color_scheme
     }
@@ -450,7 +457,7 @@ impl Cloud {
         self.cols = cols;
         self.lines = lines;
 
-        self.num_droplets = (1.5 * self.cols as f32).round() as usize;
+        self.num_droplets = (DROPLET_COUNT_FACTOR * self.cols as f32).round() as usize;
         self.droplets.clear();
         self.droplets.resize_with(self.num_droplets, Droplet::new);
         self.spawn_scan_idx = 0;
@@ -460,7 +467,7 @@ impl Cloud {
         self.rand_line = Uniform::new_inclusive(0, max_line).expect("valid range");
         self.rand_len = Uniform::new_inclusive(1, max_len).expect("valid range");
         self.rand_col = Uniform::new_inclusive(0, cols.saturating_sub(1)).expect("valid range");
-        self.rand_cpidx = Uniform::new_inclusive(0, 2047).expect("valid range");
+        self.rand_cpidx = Uniform::new_inclusive(0, MAX_CHAR_POOL_IDX).expect("valid range");
 
         self.recalc_droplets_per_sec();
 
@@ -490,6 +497,7 @@ impl Cloud {
         self.last_spawn_time = now;
         self.spawn_remainder = 0.0;
         self.force_draw_everything = true;
+        self.last_reseed_time = now;
     }
 
     pub fn init_chars(&mut self, chars: Vec<char>) {
@@ -499,8 +507,8 @@ impl Cloud {
             self.chars.push('1');
         }
 
-        self.char_pool.resize(2048, '0');
-        self.glitch_pool.resize(1024, '0');
+        self.char_pool.resize(CHAR_POOL_SIZE, '0');
+        self.glitch_pool.resize(GLITCH_POOL_SIZE, '0');
         self.glitch_pool_idx = 0;
 
         let dist = Uniform::new_inclusive(0usize, self.chars.len().saturating_sub(1))
@@ -589,6 +597,7 @@ impl Cloud {
         self.glitchy && now >= self.next_glitch_time
     }
 
+    #[must_use]
     pub fn is_glitched(&self, line: u16, col: u16) -> bool {
         if !self.glitchy {
             return false;
@@ -651,6 +660,16 @@ impl Cloud {
         d.tail_put_line = None;
         d.tail_cur_line = 0;
         d.head_stop_time = None;
+    }
+
+    fn maybe_reseed_rng(&mut self, now: Instant) {
+        if now.saturating_duration_since(self.last_reseed_time)
+            >= Duration::from_secs(RNG_RESEED_INTERVAL_SECS)
+        {
+            let seed = now.elapsed().as_nanos() as u64 ^ now.elapsed().as_secs();
+            self.mt = StdRng::seed_from_u64(seed);
+            self.last_reseed_time = now;
+        }
     }
 
     fn spawn_droplets(&mut self, now: Instant, scale: f32) {
@@ -921,7 +940,11 @@ impl Cloud {
             return;
         }
 
-        let spawn_scale = (1.0 - (0.75 * self.perf_pressure)).clamp(0.25, 1.0);
+        // Periodically re-seed RNG for very long sessions
+        self.maybe_reseed_rng(now);
+
+        let spawn_scale = (1.0 - (PERF_PRESSURE_SPAWN_FACTOR * self.perf_pressure))
+            .clamp(PERF_SPAWN_SCALE_MIN, 1.0);
         self.spawn_droplets(now, spawn_scale);
 
         if self.force_draw_everything {
@@ -929,7 +952,7 @@ impl Cloud {
         }
 
         let glitch_due = self.time_for_glitch(now);
-        let allow_glitch = glitch_due && self.perf_pressure < 0.35;
+        let allow_glitch = glitch_due && self.perf_pressure < GLITCH_THRESHOLD;
         let time_for_glitch = allow_glitch;
 
         let max_sim_delta = self.max_sim_delta;

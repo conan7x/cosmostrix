@@ -11,6 +11,7 @@ pub struct Cell {
 }
 
 impl Cell {
+    #[must_use]
     pub fn blank_with_bg(bg: Option<Color>) -> Self {
         Self {
             ch: ' ',
