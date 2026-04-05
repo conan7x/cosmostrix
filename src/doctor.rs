@@ -7,9 +7,12 @@ use crate::config::Args;
 use crate::runtime::ColorMode;
 
 use super::{
-    color_mode_label, default_to_ascii, detect_color_mode, detect_color_mode_auto, env_var_truthy,
+    color_mode_label, default_to_ascii, detect_color_mode, detect_color_mode_auto,
     normalize_charset_preset_name,
 };
+
+#[cfg(target_os = "linux")]
+use super::env_var_truthy;
 
 pub fn print_doctor_report(args: &Args) {
     let lang = env::var("LANG").unwrap_or_default();

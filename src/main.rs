@@ -160,6 +160,7 @@ pub fn env_var_truthy(name: &str) -> bool {
 }
 
 #[must_use]
+#[cfg(unix)]
 fn clap_styles() -> ClapStyles {
     ClapStyles::styled()
         .header(
@@ -673,7 +674,10 @@ fn main() -> std::io::Result<()> {
     }));
 
     let mut cmd = Args::command();
-    cmd = cmd.styles(clap_styles());
+    #[cfg(unix)]
+    {
+        cmd = cmd.styles(clap_styles());
+    }
     cmd = cmd.before_help(default_params_usage_for_help());
     let help_template = if color_enabled_stdout() {
         HELP_TEMPLATE_COLOR

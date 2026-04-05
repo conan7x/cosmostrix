@@ -1,8 +1,12 @@
 // Copyright (c) 2026 rezky_nightky
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
+
+#[cfg(unix)]
+use std::sync::atomic::AtomicBool;
+#[cfg(unix)]
+use std::sync::Arc;
 
 use crossterm::event::{Event, KeyEventKind, MouseEventKind};
 
