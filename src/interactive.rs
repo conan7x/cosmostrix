@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{Event, KeyEventKind};
+use crossterm::event::{Event, KeyEventKind, MouseEventKind};
 
 #[cfg(unix)]
 use signal_hook::consts::{SIGCONT, SIGHUP, SIGINT, SIGSTOP, SIGTERM, SIGTSTP};
@@ -165,6 +165,9 @@ pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
                     }
                     Event::Mouse(m) => {
                         cloud.set_mouse_position(m.column, m.row);
+                        if matches!(m.kind, MouseEventKind::Down(_)) {
+                            cloud.set_mouse_click(m.column, m.row);
+                        }
                     }
                     _ => {}
                 }

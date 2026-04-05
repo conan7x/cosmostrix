@@ -46,6 +46,17 @@ pub struct DrawCtx<'a> {
     pub color_map: &'a [u8],
     pub glitch_map: &'a BitSlice,
     pub char_pool: &'a [char],
+
+    /// Mouse cursor column (u16::MAX if no mouse).
+    pub mouse_col: u16,
+    /// Mouse cursor line (u16::MAX if no mouse).
+    pub mouse_line: u16,
+    /// Flash effect click column.
+    pub flash_col: u16,
+    /// Flash effect click line.
+    pub flash_line: u16,
+    /// Flash effect start time (None if no active flash).
+    pub flash_time: Option<Instant>,
 }
 
 impl DrawCtx<'_> {
@@ -282,6 +293,15 @@ pub struct Cloud {
     /// Whether mouse interaction is enabled.
     pub mouse_enabled: bool,
 
+    /// Flash effect: click column.
+    flash_col: u16,
+
+    /// Flash effect: click line.
+    flash_line: u16,
+
+    /// Flash effect: start time (None if no active flash).
+    flash_time: Option<Instant>,
+
     last_reseed_time: Instant,
 }
 
@@ -361,6 +381,9 @@ impl Cloud {
             mouse_col: u16::MAX,
             mouse_line: u16::MAX,
             mouse_enabled: true,
+            flash_col: u16::MAX,
+            flash_line: u16::MAX,
+            flash_time: None,
             last_reseed_time: now,
         }
     }
@@ -398,6 +421,13 @@ impl Cloud {
     pub fn set_mouse_position(&mut self, col: u16, line: u16) {
         self.mouse_col = col;
         self.mouse_line = line;
+    }
+
+    /// Trigger a click flash effect at the given position.
+    pub fn set_mouse_click(&mut self, col: u16, line: u16) {
+        self.flash_col = col;
+        self.flash_line = line;
+        self.flash_time = Some(Instant::now());
     }
 
     #[must_use]
@@ -1111,6 +1141,11 @@ impl Cloud {
             color_map: &self.color_map,
             glitch_map: &self.glitch_map,
             char_pool: &self.char_pool,
+            mouse_col: self.mouse_col,
+            mouse_line: self.mouse_line,
+            flash_col: self.flash_col,
+            flash_line: self.flash_line,
+            flash_time: self.flash_time,
         };
 
         for d in &mut self.droplets {
@@ -1138,6 +1173,13 @@ impl Cloud {
         }
 
         self.force_draw_everything = false;
+
+        // Expire flash effect after duration
+        if let Some(flash_time) = self.flash_time {
+            if flash_time.elapsed().as_secs_f32() >= MOUSE_FLASH_DURATION_SECS {
+                self.flash_time = None;
+            }
+        }
     }
 }
 

@@ -191,6 +191,27 @@ pub const FOG_MIN_FACTOR: f32 = 0.25;
 /// Mouse interaction: radius around cursor (in columns) where droplets avoid.
 pub const MOUSE_AVOID_RADIUS_COLS: u16 = 5;
 
+/// Cursor glow: horizontal radius (in columns) for the brightness boost.
+pub const MOUSE_GLOW_RADIUS_COLS: f32 = 8.0;
+
+/// Cursor glow: vertical radius (in lines) for the brightness boost.
+pub const MOUSE_GLOW_RADIUS_LINES: f32 = 6.0;
+
+/// Cursor glow: peak intensity at cursor center (0.0 = off, 1.0 = full white).
+pub const MOUSE_GLOW_INTENSITY: f32 = 0.35;
+
+/// Click flash: ring expansion speed (columns per second).
+pub const MOUSE_FLASH_SPEED: f32 = 25.0;
+
+/// Click flash: thickness of the glowing ring (in columns).
+pub const MOUSE_FLASH_RING_WIDTH: f32 = 3.0;
+
+/// Click flash: peak intensity at ring center (0.0 = off, 1.0 = full white).
+pub const MOUSE_FLASH_INTENSITY: f32 = 0.6;
+
+/// Click flash: total duration of the ripple effect in seconds.
+pub const MOUSE_FLASH_DURATION_SECS: f32 = 0.5;
+
 // ---------------------------------------------------------------------------
 // Parallax depth layers
 // ---------------------------------------------------------------------------

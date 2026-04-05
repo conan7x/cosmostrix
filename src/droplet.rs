@@ -5,7 +5,9 @@ use std::time::{Duration, Instant};
 use crate::cloud::{CharLoc, DrawCtx};
 use crate::constants::{
     DROPLET_GRAVITY, DROPLET_TERMINAL_VELOCITY_MULT, FOG_MIN_FACTOR, FOG_ROWS, HEAD_BLOOM_CELLS,
-    HEAD_BLOOM_INTENSITY, HEAD_LINGER_BRIGHTNESS_MS, PARALLAX_BRIGHTNESS_MULT,
+    HEAD_BLOOM_INTENSITY, HEAD_LINGER_BRIGHTNESS_MS, MOUSE_FLASH_DURATION_SECS,
+    MOUSE_FLASH_INTENSITY, MOUSE_FLASH_RING_WIDTH, MOUSE_FLASH_SPEED, MOUSE_GLOW_INTENSITY,
+    MOUSE_GLOW_RADIUS_COLS, MOUSE_GLOW_RADIUS_LINES, PARALLAX_BRIGHTNESS_MULT,
 };
 use crate::frame::Frame;
 use crate::palette;
@@ -260,6 +262,52 @@ impl Droplet {
                 };
                 if fog_factor < 1.0 {
                     c = palette::apply_brightness(c, fog_factor);
+                }
+
+                // Cursor glow: cells near mouse cursor get brighter (elliptical falloff)
+                if ctx.mouse_col != u16::MAX {
+                    let col_dist = if self.bound_col > ctx.mouse_col {
+                        (self.bound_col - ctx.mouse_col) as f32
+                    } else {
+                        (ctx.mouse_col - self.bound_col) as f32
+                    };
+                    let line_dist = if line > ctx.mouse_line {
+                        (line - ctx.mouse_line) as f32
+                    } else {
+                        (ctx.mouse_line - line) as f32
+                    };
+                    let norm_col = col_dist / MOUSE_GLOW_RADIUS_COLS;
+                    let norm_line = line_dist / MOUSE_GLOW_RADIUS_LINES;
+                    let dist_sq = norm_col * norm_col + norm_line * norm_line;
+                    if dist_sq < 1.0 {
+                        let glow = (1.0 - dist_sq) * MOUSE_GLOW_INTENSITY;
+                        c = palette::blend_toward_white(c, glow);
+                    }
+                }
+
+                // Click flash: expanding ring of brightness from click point
+                if let Some(flash_time) = ctx.flash_time {
+                    let elapsed = flash_time.elapsed().as_secs_f32();
+                    if elapsed < MOUSE_FLASH_DURATION_SECS {
+                        let col_dist = if self.bound_col > ctx.flash_col {
+                            (self.bound_col - ctx.flash_col) as f32
+                        } else {
+                            (ctx.flash_col - self.bound_col) as f32
+                        };
+                        let line_dist = if line > ctx.flash_line {
+                            (line - ctx.flash_line) as f32
+                        } else {
+                            (ctx.flash_line - line) as f32
+                        };
+                        let euclidean = (col_dist * col_dist + line_dist * line_dist).sqrt();
+                        let ring_radius = elapsed * MOUSE_FLASH_SPEED;
+                        let ring_dist = (euclidean - ring_radius).abs();
+                        if ring_dist < MOUSE_FLASH_RING_WIDTH {
+                            let t = 1.0 - ring_dist / MOUSE_FLASH_RING_WIDTH;
+                            let fade = 1.0 - elapsed / MOUSE_FLASH_DURATION_SECS;
+                            c = palette::blend_toward_white(c, t * MOUSE_FLASH_INTENSITY * fade);
+                        }
+                    }
                 }
 
                 c
