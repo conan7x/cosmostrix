@@ -259,6 +259,45 @@ These flags at (`cosmostrix -h`).
   - When disabled, killing Cosmostrix with `SIGKILL` may leave your terminal in raw/alt-screen mode.
   - `0`, `false`, `off`, `no`, or an empty value keeps the guard enabled.
 
+## Config file
+
+You can set persistent defaults in a config file at `~/.config/cosmostrix/config` (or `$XDG_CONFIG_HOME/cosmostrix/config` if set).
+
+Format: one `key = value` per line, `#` for comments, blank lines ignored.
+
+```
+# Example config file
+color = ocean
+charset = matrix
+fps = 60
+speed = 10
+density = 1.5
+bold = 1
+shadingmode = 1
+glitchpct = 15
+shortpct = 40
+rippct = 25
+maxdpc = 3
+```
+
+**Supported keys:**
+
+| Key | Description | Example |
+|-----|-------------|---------|
+| `color` | Color scheme | `green`, `ocean`, `neon`, `fire`... |
+| `charset` | Character set | `binary`, `matrix`, `katakana`, `braille`... |
+| `fps` | Target FPS (1-240) | `60` |
+| `speed` | Characters per second (0.001-1000) | `10` |
+| `density` | Droplet density (0.01-5.0) | `1.5` |
+| `bold` | Bold mode: 0=off, 1=random, 2=all | `1` |
+| `shadingmode` | Shading: 0=random, 1=distance-from-head | `0` |
+| `glitchpct` | Glitch chance percent (0-100) | `10` |
+| `shortpct` | Short droplet percent (0-100) | `50` |
+| `rippct` | Die-early percent (0-100) | `33.33` |
+| `maxdpc` | Max droplets per column (1-3) | `3` |
+
+CLI arguments always take precedence over config file values.
+
 ## Color schemes
 
 `--color` supports:
