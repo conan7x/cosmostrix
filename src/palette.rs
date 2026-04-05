@@ -112,6 +112,74 @@ fn colors_from_rgb(mode: ColorMode, list: &[(u8, u8, u8)]) -> Vec<Color> {
     }
 }
 
+/// Convert any crossterm Color to approximate (r, g, b).
+/// Returns (0, 0, 0) for Reset.
+#[must_use]
+fn color_to_rgb(color: Color) -> (u8, u8, u8) {
+    match color {
+        Color::Rgb { r, g, b } => (r, g, b),
+        Color::AnsiValue(v) => {
+            // Decode 256-color: 0-7 = standard, 8-15 = bright, 16-231 = 6x6x6 cube, 232-255 = grayscale
+            if v < 16 {
+                const ANSI16_RGB: [(u8, u8, u8); 16] = [
+                    (0, 0, 0),       // 0  Black
+                    (128, 0, 0),     // 1  DarkRed
+                    (0, 128, 0),     // 2  DarkGreen
+                    (128, 128, 0),   // 3  DarkYellow
+                    (0, 0, 128),     // 4  DarkBlue
+                    (128, 0, 128),   // 5  DarkMagenta
+                    (0, 128, 128),   // 6  DarkCyan
+                    (192, 192, 192), // 7  Grey
+                    (128, 128, 128), // 8  DarkGrey
+                    (255, 0, 0),     // 9  Red
+                    (0, 255, 0),     // 10 Green
+                    (255, 255, 0),   // 11 Yellow
+                    (0, 0, 255),     // 12 Blue
+                    (255, 0, 255),   // 13 Magenta
+                    (0, 255, 255),   // 14 Cyan
+                    (255, 255, 255), // 15 White
+                ];
+                ANSI16_RGB[v as usize]
+            } else if v < 232 {
+                // 6x6x6 color cube: index = 16 + 36*r + 6*g + b
+                let v = v - 16;
+                let r_idx = v / 36;
+                let g_idx = (v % 36) / 6;
+                let b_idx = v % 6;
+                // Standard cube levels
+                const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
+                (
+                    LEVELS[r_idx as usize],
+                    LEVELS[g_idx as usize],
+                    LEVELS[b_idx as usize],
+                )
+            } else {
+                // Grayscale ramp: 232-255
+                let v = 8 + 10 * (v - 232);
+                (v, v, v)
+            }
+        }
+        // Named 8/16 colors — use the same RGB approximations
+        Color::Black => (0, 0, 0),
+        Color::DarkGrey => (128, 128, 128),
+        Color::Red => (255, 0, 0),
+        Color::DarkRed => (128, 0, 0),
+        Color::Green => (0, 255, 0),
+        Color::DarkGreen => (0, 128, 0),
+        Color::Yellow => (255, 255, 0),
+        Color::DarkYellow => (128, 128, 0),
+        Color::Blue => (0, 0, 255),
+        Color::DarkBlue => (0, 0, 128),
+        Color::Magenta => (255, 0, 255),
+        Color::DarkMagenta => (128, 0, 128),
+        Color::Cyan => (0, 255, 255),
+        Color::DarkCyan => (0, 128, 128),
+        Color::White => (255, 255, 255),
+        Color::Grey => (192, 192, 192),
+        Color::Reset => (0, 0, 0),
+    }
+}
+
 fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
     let a = a as f32;
     let b = b as f32;
@@ -119,65 +187,46 @@ fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
 }
 
 /// Blend a color toward white by the given factor (0.0 = no change, 1.0 = pure white).
+/// Works with all color types (Rgb, AnsiValue, Ansi16).
 #[must_use]
 pub fn blend_toward_white(color: Color, factor: f32) -> Color {
     if factor <= 0.0 || matches!(color, Color::Reset) {
         return color;
     }
     let f = factor.clamp(0.0, 1.0);
-    match color {
-        Color::Rgb { r, g, b } => Color::Rgb {
-            r: lerp_u8(r, 255, f),
-            g: lerp_u8(g, 255, f),
-            b: lerp_u8(b, 255, f),
-        },
-        _ => color,
+    let (r, g, b) = color_to_rgb(color);
+    Color::Rgb {
+        r: lerp_u8(r, 255, f),
+        g: lerp_u8(g, 255, f),
+        b: lerp_u8(b, 255, f),
     }
 }
 
 /// Darken a color by the given factor (1.0 = no change, 0.0 = black).
+/// Works with all color types (Rgb, AnsiValue, Ansi16).
 #[must_use]
 pub fn apply_brightness(color: Color, factor: f32) -> Color {
     if factor >= 1.0 || matches!(color, Color::Reset) {
         return color;
     }
     let f = factor.clamp(0.0, 1.0);
-    match color {
-        Color::Rgb { r, g, b } => Color::Rgb {
-            r: (r as f32 * f).round().clamp(0.0, 255.0) as u8,
-            g: (g as f32 * f).round().clamp(0.0, 255.0) as u8,
-            b: (b as f32 * f).round().clamp(0.0, 255.0) as u8,
-        },
-        _ => color,
+    let (r, g, b) = color_to_rgb(color);
+    Color::Rgb {
+        r: (r as f32 * f).round().clamp(0.0, 255.0) as u8,
+        g: (g as f32 * f).round().clamp(0.0, 255.0) as u8,
+        b: (b as f32 * f).round().clamp(0.0, 255.0) as u8,
     }
 }
 
 /// Blend two colors together by factor t (0.0 = a, 1.0 = b).
+/// Works with all color types via RGB conversion.
 fn lerp_colors(a: Color, b: Color, t: f32) -> Color {
-    match (a, b) {
-        (
-            Color::Rgb {
-                r: ar,
-                g: ag,
-                b: ab,
-            },
-            Color::Rgb {
-                r: br,
-                g: bg,
-                b: bb,
-            },
-        ) => Color::Rgb {
-            r: lerp_u8(ar, br, t),
-            g: lerp_u8(ag, bg, t),
-            b: lerp_u8(ab, bb, t),
-        },
-        _ => {
-            if t < 0.5 {
-                a
-            } else {
-                b
-            }
-        }
+    let (ar, ag, ab) = color_to_rgb(a);
+    let (br, bg, bb) = color_to_rgb(b);
+    Color::Rgb {
+        r: lerp_u8(ar, br, t),
+        g: lerp_u8(ag, bg, t),
+        b: lerp_u8(ab, bb, t),
     }
 }
 
