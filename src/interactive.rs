@@ -477,7 +477,10 @@ fn handle_keybinding(
             cloud.reset(frame.width, frame.height);
             cloud.force_draw_everything();
         }
-        (KeyCode::Char('c'), _) => {
+        (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+            cloud.raining = false;
+        }
+        (KeyCode::Char('c'), KeyModifiers::NONE) => {
             let next = cycle_color_scheme(cloud.color_scheme(), 1);
             cloud.set_color_scheme(next);
         }
