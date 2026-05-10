@@ -1,6 +1,8 @@
 // Copyright (c) 2026 rezky_nightky
 
 use std::io::{stdout, Result, Stdout, Write};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use crossterm::{
     cursor, event,
@@ -48,6 +50,9 @@ pub struct Terminal {
     row_dirty: Vec<Vec<usize>>,
     touched_rows: Vec<u16>,
     mouse_capture_enabled: bool,
+    /// Set to `true` after flush completes; the force-exit watchdog checks
+    /// this and skips `process::exit` when cleanup finished normally.
+    shutdown_complete: Arc<AtomicBool>,
 }
 
 impl Terminal {
@@ -85,6 +90,7 @@ impl Terminal {
             row_dirty: Vec::new(),
             touched_rows: Vec::new(),
             mouse_capture_enabled: false,
+            shutdown_complete: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -366,12 +372,21 @@ impl Drop for Terminal {
         let _ = self.stdout.execute(terminal::EnableLineWrap);
         let _ = self.stdout.execute(terminal::LeaveAlternateScreen);
         let _ = terminal::disable_raw_mode();
-        // Safety: spawn a force-exit timer in case flush blocks
-        std::thread::spawn(|| {
+
+        // Safety: spawn a force-exit timer in case flush blocks.
+        // The flag is set to `true` after flush completes; if the watchdog
+        // sees the flag it skips `process::exit`, allowing normal shutdown
+        // and SIGCONT recovery to proceed without being killed.
+        let done = self.shutdown_complete.clone();
+        std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_secs(SHUTDOWN_TIMEOUT_SECS));
-            std::process::exit(0);
+            if !done.load(std::sync::atomic::Ordering::Acquire) {
+                std::process::exit(0);
+            }
         });
         let _ = self.stdout.flush();
+        self.shutdown_complete
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 }
 

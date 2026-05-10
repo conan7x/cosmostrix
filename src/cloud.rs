@@ -755,7 +755,8 @@ impl Cloud {
         if now.saturating_duration_since(self.last_reseed_time)
             >= Duration::from_secs(RNG_RESEED_INTERVAL_SECS)
         {
-            let seed = now.elapsed().as_nanos() as u64 ^ now.elapsed().as_secs();
+            let elapsed = now.elapsed();
+            let seed = elapsed.as_nanos() as u64 ^ elapsed.as_secs();
             self.mt = StdRng::seed_from_u64(seed);
             self.last_reseed_time = now;
         }

@@ -435,16 +435,31 @@ fn handle_keybinding(
 
 fn spawn_watchdog() {
     let counter = &FRAME_COUNTER as &std::sync::atomic::AtomicU64;
+    let mut stuck_count: u32 = 0;
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(WATCHDOG_INTERVAL_SECS));
         let current = counter.load(Ordering::Relaxed);
         std::thread::sleep(Duration::from_secs(WATCHDOG_INTERVAL_SECS));
         let next = counter.load(Ordering::Relaxed);
         if current == next {
+            stuck_count += 1;
+            if stuck_count >= 2 {
+                // Main loop has been stuck for multiple check intervals.
+                // Attempt to restore the terminal so the user isn't left
+                // with a broken shell, then exit.
+                restore_terminal_best_effort();
+                eprintln!(
+                    "[watchdog] main loop stuck for {}s — restoring terminal and exiting",
+                    WATCHDOG_INTERVAL_SECS * 2 * stuck_count as u64
+                );
+                std::process::exit(1);
+            }
             eprintln!(
                 "[watchdog] main loop appears stuck (frame counter unchanged for {}s)",
                 WATCHDOG_INTERVAL_SECS * 2
             );
+        } else {
+            stuck_count = 0;
         }
     });
 }
