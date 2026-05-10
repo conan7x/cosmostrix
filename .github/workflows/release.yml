@@ -6,6 +6,7 @@ name: T-800 - Release
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   build_packages:
@@ -265,6 +266,18 @@ jobs:
         if: matrix.checks
         run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
+      - name: Verify binary is stripped
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="target/${{ matrix.target }}/${{ matrix.profile }}/cosmostrix"
+          if file "${BIN}" | grep -qiE 'not stripped'; then
+            echo "::error::Binary is not stripped: ${BIN}"
+            exit 1
+          fi
+          echo "Binary stripped: $(file "${BIN}" | head -1)"
+
       - name: Package (.tar.gz)
         if: runner.os != 'Windows'
         shell: bash
@@ -278,14 +291,17 @@ jobs:
 
           PROFILE="${{ matrix.profile }}"
 
-          OUTDIR="dist/cosmostrix-${VERSION}-${PLATFORM}"
+          # Flat archive layout: files at archive root
+          # Archive contains: /cosmostrix, /LICENSE, /README.md
+          # PKGBUILD depends on this invariant — do NOT add nesting.
+          OUTDIR="dist/stage"
           mkdir -p "$OUTDIR"
           cp -f "target/${TARGET}/${PROFILE}/cosmostrix" "$OUTDIR/"
           cp -f "README.md" "$OUTDIR/"
           cp -f "LICENSE" "$OUTDIR/"
 
           TARBALL="cosmostrix-bin-${TAG}-${PLATFORM}.tar.gz"
-          tar -czf "dist/${TARBALL}" -C dist "cosmostrix-${VERSION}-${PLATFORM}"
+          tar -czf "dist/${TARBALL}" -C "$OUTDIR" cosmostrix LICENSE README.md
 
           (
             cd dist
@@ -295,6 +311,24 @@ jobs:
               shasum -a 512 "${TARBALL}" > "${TARBALL}.sha512"
             fi
           )
+
+          # Verify archive layout
+          echo "--- Archive contents ---"
+          tar -tzf "dist/${TARBALL}"
+          echo "--- End archive contents ---"
+
+      - name: Verify binary is stripped (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bin = "target/${{ matrix.target }}/${{ matrix.profile }}/cosmostrix.exe"
+          # Windows MSVC strip is handled by the linker; just verify the file exists
+          if (-not (Test-Path $bin)) {
+            throw "Binary not found: $bin"
+          }
+          $size = (Get-Item $bin).Length
+          Write-Host "Binary size: $size bytes"
 
       - name: Package (.zip)
         if: runner.os == 'Windows'
@@ -308,7 +342,8 @@ jobs:
 
           $PROFILE = "${{ matrix.profile }}"
 
-          $outDir = "dist/cosmostrix-$VERSION-$PLATFORM"
+          # Flat archive layout: files at archive root
+          $outDir = "dist/stage"
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
           Copy-Item -Force "target/$TARGET/$PROFILE/cosmostrix.exe" "$outDir/"
@@ -432,14 +467,15 @@ jobs:
 
           PROFILE="pro-android-aarch64"
 
-          OUTDIR="dist/cosmostrix-${VERSION}-${PLATFORM}"
+          # Flat archive layout: files at archive root
+          OUTDIR="dist/stage"
           mkdir -p "$OUTDIR"
           cp -f "target/${TARGET}/${PROFILE}/cosmostrix" "$OUTDIR/"
           cp -f "README.md" "$OUTDIR/"
           cp -f "LICENSE" "$OUTDIR/"
 
           TARBALL="cosmostrix-bin-${TAG}-${PLATFORM}.tar.gz"
-          tar -czf "dist/${TARBALL}" -C dist "cosmostrix-${VERSION}-${PLATFORM}"
+          tar -czf "dist/${TARBALL}" -C "$OUTDIR" cosmostrix LICENSE README.md
 
           (
             cd dist
@@ -449,6 +485,11 @@ jobs:
               shasum -a 512 "${TARBALL}" > "${TARBALL}.sha512"
             fi
           )
+
+          # Verify archive layout
+          echo "--- Archive contents ---"
+          tar -tzf "dist/${TARBALL}"
+          echo "--- End archive contents ---"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4.6.2
@@ -617,6 +658,7 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
+        id: gh_release
         uses: softprops/action-gh-release@v2.5.0
         with:
           tag_name: ${{ steps.prep.outputs.tag }}
@@ -630,6 +672,23 @@ jobs:
             dist/**/*.tar.gz.sha512
             dist/**/*.zip
             dist/**/*.zip.sha512
+
+      # ------------------------------------------------------------------
+      # Trigger AUR synchronization after successful release
+      # ------------------------------------------------------------------
+      - name: Trigger AUR sync
+        if: steps.gh_release.outputs.id != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.ver.outputs.tag }}"
+          echo "Triggering AUR sync for ${TAG}"
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/dispatches" \
+            -d "{\"event_type\":\"aur-sync\",\"client_payload\":{\"tag\":\"${TAG}\"}}"
+          echo "AUR sync triggered"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

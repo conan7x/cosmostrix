@@ -1,0 +1,277 @@
+# =============================================================================
+# T-800 — AUR Synchronization
+# =============================================================================
+# Triggers after a successful GitHub Release publication and synchronizes
+# pkgver, _tag, and .SRCINFO to the Arch User Repository.
+#
+# Design goals:
+#   - Deterministic:  same tag always produces identical AUR state
+#   - Idempotent:     re-running for the same tag is safe
+#   - Retry-safe:     transient SSH failures can be retried
+#   - Minimal:        only modifies pkgver, _tag, .SRCINFO
+#
+# SSH deployment policy:
+#   Uses AUR_SSH_PRIVATE_KEY from GitHub Actions Secrets.
+#   This key is isolated, revocable, has no passphrase, and exists
+#   only for automated deployment.
+# =============================================================================
+
+name: "T-800 - AUR Sync"
+
+on:
+  repository_dispatch:
+    types: [aur-sync]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to sync (e.g. v1.1.2-stable.1)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aur-sync-${{ github.event.client_payload.tag || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  AUR_REPO: "ssh://aur@aur.archlinux.org/cosmostrix-bin.git"
+  AUR_BRANCH: "master"
+  PKGBUILD_DIR: "aur/cosmostrix-bin"
+
+jobs:
+  sync-aur:
+    name: "T-800 — Sync to AUR"
+    runs-on: ubuntu-latest
+
+    steps:
+      # ------------------------------------------------------------------
+      # 1. Resolve the release tag
+      # ------------------------------------------------------------------
+      - name: Resolve release tag
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="${{ github.event.client_payload.tag || inputs.tag }}"
+          if [[ -z "${TAG}" ]]; then
+            echo "::error::No tag provided via repository_dispatch or workflow_dispatch"
+            exit 1
+          fi
+
+          # Ensure tag starts with 'v'
+          TAG="${TAG## }"
+          TAG="${TAG%% }"
+          if [[ "${TAG}" != v* ]]; then
+            TAG="v${TAG}"
+          fi
+
+          # Validate tag format: v<semver>-<channel>
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[a-zA-Z0-9]+(\.[0-9]+)?$ ]]; then
+            echo "::error::Tag '${TAG}' does not match required format v<semver>-<channel>"
+            exit 1
+          fi
+
+          VERSION="${TAG#v}"
+
+          # Convert version to AUR-compatible pkgver (replace - with .)
+          PKGVER="${VERSION//-/.}"
+
+          {
+            echo "tag=${TAG}"
+            echo "version=${VERSION}"
+            echo "pkgver=${PKGVER}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Resolved: tag=${TAG} version=${VERSION} pkgver=${PKGVER}"
+
+      # ------------------------------------------------------------------
+      # 2. Checkout the main repository (for PKGBUILD template)
+      # ------------------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4.3.1
+        with:
+          ref: main
+          fetch-depth: 1
+
+      # ------------------------------------------------------------------
+      # 3. Update PKGBUILD (only pkgver and _tag — mutation policy)
+      # ------------------------------------------------------------------
+      - name: Update PKGBUILD
+        id: update
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="${{ steps.resolve.outputs.tag }}"
+          PKGVER="${{ steps.resolve.outputs.pkgver }}"
+          PKGBUILD="${{ env.PKGBUILD_DIR }}/PKGBUILD"
+
+          if [[ ! -f "${PKGBUILD}" ]]; then
+            echo "::error::PKGBUILD not found at ${PKGBUILD}"
+            exit 1
+          fi
+
+          # Update _tag (the single source of truth for URLs)
+          sed -i -E "s|^_tag=.*|_tag=${TAG}|" "${PKGBUILD}"
+
+          # Update pkgver (AUR-compatible version string)
+          sed -i -E "s|^pkgver=.*|pkgver=${PKGVER}|" "${PKGBUILD}"
+
+          # Reset pkgrel to 1 on version change
+          sed -i -E "s|^pkgrel=.*|pkgrel=1|" "${PKGBUILD}"
+
+          # Verify the updates
+          echo "--- Updated PKGBUILD fields ---"
+          grep -E '^(pkgver=|_tag=|pkgrel=)' "${PKGBUILD}"
+
+      # ------------------------------------------------------------------
+      # 4. Regenerate .SRCINFO from PKGBUILD
+      # ------------------------------------------------------------------
+      - name: Regenerate .SRCINFO
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="${{ steps.resolve.outputs.tag }}"
+          PKGVER="${{ steps.resolve.outputs.pkgver }}"
+          PKGBUILD="${{ env.PKGBUILD_DIR }}/PKGBUILD"
+          SRCINFO="${{ env.PKGBUILD_DIR }}/.SRCINFO"
+
+          # Read current values from PKGBUILD
+          pkgrel="$(grep -oP '^pkgrel=\K.*' "${PKGBUILD}")"
+
+          # Generate .SRCINFO deterministically
+          # .SRCINFO uses tab indentation for continuation lines
+          {
+            echo "pkgbase = cosmostrix-bin"
+            printf '\tpkgdesc = A cosmic take on the classic Matrix rain for the terminal\n'
+            printf '\tpkgver = %s\n' "${PKGVER}"
+            printf '\tpkgrel = %s\n' "${pkgrel}"
+            printf '\turl = https://github.com/oxyzenQ/cosmostrix\n'
+            printf '\tarch = x86_64\n'
+            printf '\tarch = aarch64\n'
+            printf '\tlicense = MIT\n'
+            printf '\tprovides = cosmostrix\n'
+            printf '\tconflicts = cosmostrix\n'
+            printf '\toptions = !strip\n'
+            printf '\tsource_x86_64 = https://github.com/oxyzenQ/cosmostrix/releases/download/%s/cosmostrix-bin-%s-linux-x86_64-v1.tar.gz\n' "${TAG}" "${TAG}"
+            printf '\tsource_x86_64 = https://github.com/oxyzenQ/cosmostrix/releases/download/%s/cosmostrix-bin-%s-linux-x86_64-v2.tar.gz\n' "${TAG}" "${TAG}"
+            printf '\tsource_x86_64 = https://github.com/oxyzenQ/cosmostrix/releases/download/%s/cosmostrix-bin-%s-linux-x86_64-v3.tar.gz\n' "${TAG}" "${TAG}"
+            printf '\tsource_x86_64 = https://github.com/oxyzenQ/cosmostrix/releases/download/%s/cosmostrix-bin-%s-linux-x86_64-v4.tar.gz\n' "${TAG}" "${TAG}"
+            printf '\tsource_aarch64 = https://github.com/oxyzenQ/cosmostrix/releases/download/%s/cosmostrix-bin-%s-linux-aarch64-native.tar.gz\n' "${TAG}" "${TAG}"
+            printf '\tsha256sums_x86_64 = SKIP\n'
+            printf '\tsha256sums_x86_64 = SKIP\n'
+            printf '\tsha256sums_x86_64 = SKIP\n'
+            printf '\tsha256sums_x86_64 = SKIP\n'
+            printf '\tsha256sums_aarch64 = SKIP\n'
+            echo ""
+            echo "pkgname = cosmostrix-bin"
+          } > "${SRCINFO}"
+
+          echo "--- Generated .SRCINFO ---"
+          cat "${SRCINFO}"
+
+      # ------------------------------------------------------------------
+      # 5. Setup SSH for AUR deployment
+      # ------------------------------------------------------------------
+      - name: Setup SSH key
+        shell: bash
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${AUR_SSH_KEY}" ]]; then
+            echo "::error::AUR_SSH_PRIVATE_KEY secret is not configured"
+            exit 1
+          fi
+
+          mkdir -p "${HOME}/.ssh"
+          chmod 700 "${HOME}/.ssh"
+
+          # Write the private key
+          echo "${AUR_SSH_KEY}" > "${HOME}/.ssh/aur_key"
+          chmod 600 "${HOME}/.ssh/aur_key"
+
+          # Configure SSH to use the AUR deploy key
+          cat > "${HOME}/.ssh/config" <<SSHEOF
+          Host aur.archlinux.org
+            IdentityFile ~/.ssh/aur_key
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+            IdentitiesOnly yes
+          SSHEOF
+          chmod 600 "${HOME}/.ssh/config"
+
+          # Add AUR host key (deterministic, pinned)
+          echo "aur.archlinux.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEAqIVM6rPn6ExbYOgrMVLGShRnwnnjC2A1H6g9pP6kR" \
+            > "${HOME}/.ssh/known_hosts"
+
+      # ------------------------------------------------------------------
+      # 6. Clone AUR repository, apply changes, push
+      # ------------------------------------------------------------------
+      - name: Push to AUR
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="${{ steps.resolve.outputs.tag }}"
+          VERSION="${{ steps.resolve.outputs.version }}"
+
+          # Clone the existing AUR package repository
+          AUR_DIR="$(mktemp -d)"
+          git clone --branch "${{ env.AUR_BRANCH }}" "${{ env.AUR_REPO }}" "${AUR_DIR}"
+
+          # Copy updated files from our repo into the AUR clone
+          cp -f "${{ env.PKGBUILD_DIR }}/PKGBUILD" "${AUR_DIR}/PKGBUILD"
+          cp -f "${{ env.PKGBUILD_DIR }}/.SRCINFO" "${AUR_DIR}/.SRCINFO"
+
+          # Verify no unintended files
+          echo "--- AUR repo contents after copy ---"
+          ls -la "${AUR_DIR}/"
+
+          # Check for changes (idempotency — skip if already up to date)
+          cd "${AUR_DIR}"
+          if git diff --quiet; then
+            echo "No changes to push — AUR is already up to date for ${TAG}"
+            exit 0
+          fi
+
+          # Commit and push
+          git config user.name "oxyzenQ"
+          git config user.email "130107241+oxyzenQ@users.noreply.github.com"
+
+          git add PKGBUILD .SRCINFO
+          git commit -m "chore: update to ${TAG}"
+
+          # Push with retry (transient SSH failures)
+          MAX_RETRIES=3
+          RETRY_DELAY=10
+          for i in $(seq 1 "${MAX_RETRIES}"); do
+            if git push origin "${{ env.AUR_BRANCH }}"; then
+              echo "Successfully pushed to AUR"
+              break
+            fi
+
+            if [[ "${i}" -eq "${MAX_RETRIES}" ]]; then
+              echo "::error::Failed to push to AUR after ${MAX_RETRIES} attempts"
+              exit 1
+            fi
+
+            echo "Push attempt ${i} failed, retrying in ${RETRY_DELAY}s..."
+            sleep "${RETRY_DELAY}"
+          done
+
+          echo "AUR package updated to ${TAG}"
+
+      # ------------------------------------------------------------------
+      # 7. Cleanup
+      # ------------------------------------------------------------------
+      - name: Cleanup SSH key
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "${HOME}/.ssh/aur_key" "${HOME}/.ssh/config" "${HOME}/.ssh/known_hosts"

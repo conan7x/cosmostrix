@@ -105,17 +105,17 @@ REPO="oxyzenQ/cosmostrix"
 TAG="v1.0.0"
 PLATFORM="linux-x86_64-v3"
 ARCHIVE="cosmostrix-bin-${TAG}-${PLATFORM}.tar.gz"
-VERSION="${TAG#v}"
 BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
 
+mkdir -p cosmostrix && cd cosmostrix
 curl -LO "${BASE_URL}/${ARCHIVE}"
 curl -LO "${BASE_URL}/${ARCHIVE}.sha512"
 sha512sum -c "${ARCHIVE}.sha512"
 tar -xzf "${ARCHIVE}"
-"./cosmostrix-${VERSION}-${PLATFORM}/cosmostrix" -i
+./cosmostrix -i
 
 # optional: install to PATH
-install -Dm755 "./cosmostrix-${VERSION}-${PLATFORM}/cosmostrix" ~/.local/bin/cosmostrix
+install -Dm755 ./cosmostrix ~/.local/bin/cosmostrix
 ```
 
 macOS (example)
@@ -125,14 +125,14 @@ REPO="oxyzenQ/cosmostrix"
 TAG="v1.0.0"
 PLATFORM="darwin-aarch64-native"
 ARCHIVE="cosmostrix-bin-${TAG}-${PLATFORM}.tar.gz"
-VERSION="${TAG#v}"
 BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
 
+mkdir -p cosmostrix && cd cosmostrix
 curl -LO "${BASE_URL}/${ARCHIVE}"
 curl -LO "${BASE_URL}/${ARCHIVE}.sha512"
 shasum -a 512 -c "${ARCHIVE}.sha512"
 tar -xzf "${ARCHIVE}"
-"./cosmostrix-${VERSION}-${PLATFORM}/cosmostrix" -i
+./cosmostrix -i
 ```
 
 Android (Termux) (example)
@@ -143,18 +143,18 @@ REPO="oxyzenQ/cosmostrix"
 TAG="v1.0.0"
 PLATFORM="android-aarch64-native"
 ARCHIVE="cosmostrix-bin-${TAG}-${PLATFORM}.tar.gz"
-VERSION="${TAG#v}"
 BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
 
+mkdir -p cosmostrix && cd cosmostrix
 curl -LO "${BASE_URL}/${ARCHIVE}"
 curl -LO "${BASE_URL}/${ARCHIVE}.sha512"
 sha512sum -c "${ARCHIVE}.sha512"
 tar -xzf "${ARCHIVE}"
-chmod +x "./cosmostrix-${VERSION}-${PLATFORM}/cosmostrix"
-"./cosmostrix-${VERSION}-${PLATFORM}/cosmostrix" -i
+chmod +x ./cosmostrix
+./cosmostrix -i
 
 # optional: install to PATH (Termux)
-install -m755 "./cosmostrix-${VERSION}-${PLATFORM}/cosmostrix" "$PREFIX/bin/cosmostrix"
+install -m755 ./cosmostrix "$PREFIX/bin/cosmostrix"
 ```
 
 Windows (PowerShell) (example)
@@ -164,9 +164,10 @@ $repo = "oxyzenQ/cosmostrix"
 $tag = "v1.0.0"
 $platform = "windows-x86_64"
 $zip = "cosmostrix-bin-$tag-$platform.zip"
-$version = $tag.TrimStart('v')
 $base = "https://github.com/$repo/releases/download/$tag"
 
+New-Item -ItemType Directory -Force -Path cosmostrix | Out-Null
+Set-Location cosmostrix
 Invoke-WebRequest -Uri "$base/$zip" -OutFile $zip
 Invoke-WebRequest -Uri "$base/$zip.sha512" -OutFile "$zip.sha512"
 
@@ -175,8 +176,25 @@ $actual = (Get-FileHash -Algorithm SHA512 $zip).Hash.ToLower()
 if ($actual -ne $expected) { throw "SHA512 mismatch" }
 
 Expand-Archive -Force $zip .
-.\cosmostrix-$version-$platform\cosmostrix.exe -i
+.\cosmostrix.exe -i
 ```
+
+### From AUR (Arch Linux)
+
+```bash
+# Using paru
+paru -S cosmostrix-bin
+
+# Using yay
+yay -S cosmostrix-bin
+
+# Manual
+git clone https://aur.archlinux.org/cosmostrix-bin.git
+cd cosmostrix-bin
+makepkg -si
+```
+
+The AUR package automatically selects the optimal binary for your CPU (x86_64-v1 through v4, or aarch64-native).
 
 ### From source (recommended)
 
