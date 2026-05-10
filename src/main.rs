@@ -7,11 +7,14 @@ mod cloud;
 mod config;
 mod configfile;
 mod constants;
+mod diagnostics;
 mod doctor;
 mod droplet;
 mod frame;
 mod interactive;
 mod palette;
+mod renderer_info;
+mod report;
 mod runtime;
 mod terminal;
 mod validation;
@@ -88,6 +91,7 @@ pub struct CloudConfig {
     pub duration: Option<f64>,
     pub duration_s: Option<f64>,
     pub bench_frames: Option<u64>,
+    pub benchmark: bool,
     pub density_auto: bool,
     pub base_density: f32,
     pub perf_stats: bool,
@@ -134,6 +138,7 @@ impl CloudConfig {
 // --- Helper functions (shared across modules) ---
 
 #[must_use]
+#[allow(dead_code)]
 fn build_info() -> &'static str {
     env!("COSMOSTRIX_BUILD")
 }
@@ -838,23 +843,46 @@ fn main() -> std::io::Result<()> {
     }
 
     if args.info {
-        println!("Version: v{}", env!("CARGO_PKG_VERSION"));
-        if let Some(sha) = build_commit_short() {
-            println!("Build: {} ({})", build_info(), sha);
-        } else {
-            println!("Build: {}", build_info());
+        let cpu = diagnostics::detect_cpu_info();
+        let color_mode = detect_color_mode(&args);
+        let ri = renderer_info::renderer_info(color_mode);
+
+        let mut r = report::Report::new("COSMOSTRIX");
+        {
+            let s = r.section("BUILD");
+            s.field("version", &format!("v{}", env!("CARGO_PKG_VERSION")));
+            if let Some(sha) = build_commit_short() {
+                s.field("commit", sha);
+            }
+            s.field("variant", cpu.build_variant);
+            s.field("optimization", &diagnostics::feature_string(&cpu.features));
+            s.field("dispatch", cpu.dispatch);
+            s.field("rustc", env!("COSMOSTRIX_RUSTC_VERSION"));
+            s.field("lto", env!("COSMOSTRIX_LTO"));
+            s.field("panic", env!("COSMOSTRIX_PANIC"));
+            s.field("strip", env!("COSMOSTRIX_STRIP"));
         }
-        println!("Copyright: (c) 2026 {}", env!("CARGO_PKG_AUTHORS"));
-        println!("License: {}", env!("CARGO_PKG_LICENSE"));
-        println!("Source: {}", env!("CARGO_PKG_REPOSITORY"));
-        println!(
-            "  est_memory_per_frame (120x40): {}",
-            format_bytes(estimate_memory_budget(120, 40))
-        );
-        println!(
-            "  est_memory_per_frame (200x60): {}",
-            format_bytes(estimate_memory_budget(200, 60))
-        );
+        {
+            let s = r.section("RENDERER");
+            s.field("backend", ri.backend);
+            s.field("pacing", ri.pacing);
+            s.field("unicode", ri.unicode);
+            s.field("frame_strategy", ri.frame_strategy);
+            s.field("dirty_tracking", ri.dirty_tracking);
+            s.field("color_depth", ri.color_depth);
+        }
+        {
+            let s = r.section("CAPACITY");
+            s.field(
+                "est_memory_per_frame (120x40)",
+                &format_bytes(estimate_memory_budget(120, 40)),
+            );
+            s.field(
+                "est_memory_per_frame (200x60)",
+                &format_bytes(estimate_memory_budget(200, 60)),
+            );
+        }
+        r.print();
         return Ok(());
     }
 
@@ -1002,6 +1030,7 @@ fn main() -> std::io::Result<()> {
         duration: args.duration,
         duration_s,
         bench_frames: args.bench_frames,
+        benchmark: args.benchmark,
         density_auto,
         base_density,
         perf_stats: args.perf_stats,
@@ -1010,6 +1039,10 @@ fn main() -> std::io::Result<()> {
         user_ranges,
         def_ascii,
     };
+
+    if args.benchmark {
+        return bench::run_premium_benchmark(&cloud_cfg);
+    }
 
     if let Some(_bench_frames) = args.bench_frames {
         return bench::run_benchmark(&cloud_cfg);

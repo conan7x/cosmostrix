@@ -203,10 +203,17 @@ pub struct Args {
 
     #[arg(
         long = "bench-frames",
-        help_heading = "PERFORMANCE",
+        help_heading = "DIAGNOSTICS",
         help = "Run headless benchmark for N frames and exit"
     )]
     pub bench_frames: Option<u64>,
+
+    #[arg(
+        long = "benchmark",
+        help_heading = "DIAGNOSTICS",
+        help = "Run renderer benchmark (5 seconds) and print results"
+    )]
+    pub benchmark: bool,
 
     #[arg(
         short = 'g',

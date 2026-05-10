@@ -20,6 +20,22 @@ fn main() {
         .or_else(|| env_short_sha("GITHUB_SHA"))
         .unwrap_or_default();
     println!("cargo:rustc-env=COSMOSTRIX_GIT_SHA={}", sha);
+
+    // Embed rustc version
+    let rustc_version = detect_rustc_version();
+    println!("cargo:rustc-env=COSMOSTRIX_RUSTC_VERSION={}", rustc_version);
+
+    // Embed LTO setting from profile env vars
+    let lto = detect_lto();
+    println!("cargo:rustc-env=COSMOSTRIX_LTO={}", lto);
+
+    // Embed panic strategy from profile env vars
+    let panic = detect_panic();
+    println!("cargo:rustc-env=COSMOSTRIX_PANIC={}", panic);
+
+    // Embed strip setting from profile env vars
+    let strip = detect_strip();
+    println!("cargo:rustc-env=COSMOSTRIX_STRIP={}", strip);
 }
 
 fn env_short_sha(name: &str) -> Option<String> {
@@ -88,4 +104,68 @@ fn infer_build_id() -> String {
     } else {
         format!("{os}-{arch}-native")
     }
+}
+
+fn detect_rustc_version() -> String {
+    use std::process::Command;
+
+    Command::new("rustc")
+        .arg("--version")
+        .output()
+        .ok()
+        .and_then(|out| {
+            if out.status.success() {
+                String::from_utf8(out.stdout)
+                    .ok()
+                    .map(|s| s.trim().to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Detect LTO setting from the active Cargo profile.
+///
+/// Checks `CARGO_PROFILE_<UPPERCASE_PROFILE>_LTO` env vars for the
+/// current build profile. The profile name is available via
+/// `CARGO_PROFILE_NAME` (set by Cargo since 1.63).
+fn detect_lto() -> String {
+    let profile = std::env::var("CARGO_PROFILE_NAME").unwrap_or_else(|_| "release".to_string());
+    let key = format!("CARGO_PROFILE_{}_LTO", profile.to_ascii_uppercase());
+    match std::env::var(&key).as_deref() {
+        Ok("fat") => "fat",
+        Ok("thin") => "thin",
+        Ok("off") | Ok("false") | Ok("n") => "off",
+        Ok(v) => v,
+        Err(_) => "off",
+    }
+    .to_string()
+}
+
+/// Detect panic strategy from the active Cargo profile.
+fn detect_panic() -> String {
+    let profile = std::env::var("CARGO_PROFILE_NAME").unwrap_or_else(|_| "release".to_string());
+    let key = format!("CARGO_PROFILE_{}_PANIC", profile.to_ascii_uppercase());
+    match std::env::var(&key).as_deref() {
+        Ok("abort") => "abort",
+        Ok("unwind") => "unwind",
+        Ok(v) => v,
+        Err(_) => "unwind",
+    }
+    .to_string()
+}
+
+/// Detect strip setting from the active Cargo profile.
+fn detect_strip() -> String {
+    let profile = std::env::var("CARGO_PROFILE_NAME").unwrap_or_else(|_| "release".to_string());
+    let key = format!("CARGO_PROFILE_{}_STRIP", profile.to_ascii_uppercase());
+    match std::env::var(&key).as_deref() {
+        Ok("true") | Ok("symbols") => "yes",
+        Ok("false") | Ok("none") => "no",
+        Ok("debuginfo") => "debuginfo",
+        Ok(v) => v,
+        Err(_) => "no",
+    }
+    .to_string()
 }

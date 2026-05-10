@@ -493,6 +493,12 @@ impl Cloud {
         self.color_scheme
     }
 
+    /// Return the total number of droplet slots (alive + dead).
+    #[must_use]
+    pub fn droplet_count(&self) -> usize {
+        self.droplets.len()
+    }
+
     pub fn set_async(&mut self, on: bool) {
         self.async_mode = on;
         self.set_column_speeds();

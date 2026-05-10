@@ -1,9 +1,14 @@
 // Copyright (c) 2026 rezky_nightky
 
+//! Doctor diagnostics: environment, locale, charset, and terminal compatibility check.
+
 use std::env;
 
 use crate::charset::{charset_from_str, Charset};
 use crate::config::Args;
+use crate::diagnostics;
+use crate::renderer_info;
+use crate::report::Report;
 use crate::runtime::ColorMode;
 
 use super::{
@@ -29,185 +34,226 @@ pub fn print_doctor_report(args: &Args) {
 
     let auto = detect_color_mode_auto();
     let effective = detect_color_mode(args);
-
-    println!("DOCTOR REPORT:");
-    println!("  stdin_is_tty: {}", if stdin_tty { "yes" } else { "no" });
-    println!("  stdout_is_tty: {}", if stdout_tty { "yes" } else { "no" });
-
-    println!(
-        "  LANG: {}",
-        if lang.is_empty() { "(unset)" } else { &lang }
-    );
-    println!(
-        "  LC_ALL: {}",
-        if lc_all.is_empty() {
-            "(unset)"
-        } else {
-            &lc_all
-        }
-    );
-    println!(
-        "  LC_CTYPE: {}",
-        if lc_ctype.is_empty() {
-            "(unset)"
-        } else {
-            &lc_ctype
-        }
-    );
-    println!("  locale_utf8: {}", if locale_utf8 { "yes" } else { "no" });
-
-    println!(
-        "  TERM: {}",
-        if term.is_empty() { "(unset)" } else { &term }
-    );
-    println!(
-        "  COLORTERM: {}",
-        if colorterm.is_empty() {
-            "(unset)"
-        } else {
-            &colorterm
-        }
-    );
-
-    #[cfg(target_os = "linux")]
-    {
-        let no_fork_guard = env_var_truthy("COSMOSTRIX_NO_FORK_GUARD");
-        println!(
-            "  fork_guard: {}",
-            if no_fork_guard {
-                "disabled (COSMOSTRIX_NO_FORK_GUARD)"
-            } else {
-                "enabled"
-            }
-        );
-    }
-
-    println!("  color_auto_detected: {}", color_mode_label(auto));
-    if args.colormode.is_some() {
-        println!("  color_forced: {}", color_mode_label(effective));
-    }
-    println!("  color_effective: {}", color_mode_label(effective));
-
     let def_ascii = default_to_ascii();
-    println!(
-        "  default_to_ascii: {}",
-        if def_ascii { "yes" } else { "no" }
-    );
 
-    let charset_preset = normalize_charset_preset_name(&args.charset);
-    println!(
-        "  charset: {}",
-        if args.charset.is_empty() {
-            "(empty)"
-        } else {
-            &args.charset
-        }
-    );
-    if charset_preset != args.charset {
-        println!("  charset_normalized: {}", charset_preset);
+    // Environment detections
+    let tmux = env::var("TMUX").is_ok();
+    let ssh = env::var("SSH_CONNECTION").is_ok() || env::var("SSH_TTY").is_ok();
+    let headless = !stdin_tty && !stdout_tty;
+
+    let cpu = diagnostics::detect_cpu_info();
+    let ri = renderer_info::renderer_info(effective);
+
+    let mut r = Report::new("COSMOSTRIX DIAGNOSTICS REPORT");
+
+    // SYSTEM section
+    {
+        let s = r.section("SYSTEM");
+        s.field("stdin_tty", if stdin_tty { "yes" } else { "no" });
+        s.field("stdout_tty", if stdout_tty { "yes" } else { "no" });
+        s.field("variant", cpu.variant);
+        s.field("optimization", &diagnostics::feature_string(&cpu.features));
+        s.field("build", cpu.build_variant);
     }
-    if let Some(spec) = &args.chars {
-        println!("  chars_override: {}", spec);
+
+    // ENVIRONMENT section
+    {
+        let s = r.section("ENVIRONMENT");
+        s.field("locale", if lang.is_empty() { "(unset)" } else { &lang });
+        s.field("locale_utf8", if locale_utf8 { "yes" } else { "no" });
+        s.field("tmux", if tmux { "yes" } else { "no" });
+        s.field("ssh", if ssh { "yes" } else { "no" });
+        s.field("headless", if headless { "yes" } else { "no" });
     }
 
-    let cs = match charset_from_str(&charset_preset, def_ascii) {
-        Ok(v) => v,
-        Err(e) => {
-            println!("  charset_parse_error: {}", e);
-            Charset::NONE
+    // TERMINAL section
+    {
+        let s = r.section("TERMINAL");
+        s.field("TERM", if term.is_empty() { "(unset)" } else { &term });
+        s.field(
+            "COLORTERM",
+            if colorterm.is_empty() {
+                "(unset)"
+            } else {
+                &colorterm
+            },
+        );
+        s.field("color_mode", ri.color_depth);
+
+        #[cfg(target_os = "linux")]
+        {
+            let no_fork_guard = env_var_truthy("COSMOSTRIX_NO_FORK_GUARD");
+            s.field(
+                "fork_guard",
+                if no_fork_guard { "disabled" } else { "enabled" },
+            );
         }
-    };
+        #[cfg(not(target_os = "linux"))]
+        {
+            s.field("fork_guard", "n/a (non-linux)");
+        }
 
-    let uses_katakana = cs.contains(Charset::KATAKANA);
-    let uses_unicode = uses_katakana
-        || cs.contains(Charset::GREEK)
-        || cs.contains(Charset::CYRILLIC)
-        || cs.contains(Charset::HEBREW)
-        || cs.contains(Charset::BRAILLE)
-        || cs.contains(Charset::RUNIC)
-        || cs.contains(Charset::SYMBOLS)
-        || cs.contains(Charset::ARROWS)
-        || cs.contains(Charset::BLOCKS)
-        || cs.contains(Charset::BOXDRAW)
-        || cs.contains(Charset::MINIMAL);
+        s.field("color_auto_detected", color_mode_label(auto));
+        if args.colormode.is_some() {
+            s.field("color_forced", color_mode_label(effective));
+        }
+    }
 
+    // CHARSET section
+    {
+        let s = r.section("CHARSET");
+        s.field(
+            "preset",
+            if args.charset.is_empty() {
+                "(empty)"
+            } else {
+                &args.charset
+            },
+        );
+        let charset_preset = normalize_charset_preset_name(&args.charset);
+        if charset_preset != args.charset {
+            s.field("preset_normalized", &charset_preset);
+        }
+        if let Some(spec) = &args.chars {
+            s.field("chars_override", spec);
+        }
+        s.field("default_to_ascii", if def_ascii { "yes" } else { "no" });
+    }
+
+    // SAMPLE GLYPHS section (only if locale is UTF-8)
     if locale_utf8 {
-        println!();
-        println!("SAMPLE GLYPHS:");
-        println!("  ascii: 01 ABC abc !@#");
+        let cs = match charset_from_str(&normalize_charset_preset_name(&args.charset), def_ascii) {
+            Ok(v) => v,
+            Err(e) => {
+                // Add parse error as a note
+                let s = r.section("CHARSET");
+                s.field("parse_error", &e);
+                Charset::NONE
+            }
+        };
+
+        let uses_katakana = cs.contains(Charset::KATAKANA);
+        let uses_unicode = uses_katakana
+            || cs.contains(Charset::GREEK)
+            || cs.contains(Charset::CYRILLIC)
+            || cs.contains(Charset::HEBREW)
+            || cs.contains(Charset::BRAILLE)
+            || cs.contains(Charset::RUNIC)
+            || cs.contains(Charset::SYMBOLS)
+            || cs.contains(Charset::ARROWS)
+            || cs.contains(Charset::BLOCKS)
+            || cs.contains(Charset::BOXDRAW)
+            || cs.contains(Charset::MINIMAL);
+
+        let s = r.section("SAMPLE GLYPHS");
+        s.field("ascii", "01 ABC abc !@#");
         if uses_katakana {
-            println!("  katakana: \u{FF71}\u{FF72}\u{FF73}\u{FF74}\u{FF75}\u{FF76}\u{FF77}\u{FF78}\u{FF79}\u{FF7A}");
+            s.field(
+                "katakana",
+                "\u{FF71}\u{FF72}\u{FF73}\u{FF74}\u{FF75}\u{FF76}\u{FF77}\u{FF78}\u{FF79}\u{FF7A}",
+            );
         }
         if cs.contains(Charset::GREEK) {
-            println!("  greek: \u{03A9}\u{03BB}\u{03C0}\u{0394}");
+            s.field("greek", "\u{03A9}\u{03BB}\u{03C0}\u{0394}");
         }
         if cs.contains(Charset::CYRILLIC) {
-            println!("  cyrillic: \u{042F}\u{0416}\u{042E}\u{0428}");
+            s.field("cyrillic", "\u{042F}\u{0416}\u{042E}\u{0428}");
         }
         if cs.contains(Charset::HEBREW) {
-            println!("  hebrew: \u{05D0}\u{05D1}\u{05D2}\u{05D3}");
+            s.field("hebrew", "\u{05D0}\u{05D1}\u{05D2}\u{05D3}");
         }
         if cs.contains(Charset::BRAILLE) {
-            println!("  braille: \u{28FF}\u{28F7}\u{28EF}\u{28DF}");
+            s.field("braille", "\u{28FF}\u{28F7}\u{28EF}\u{28DF}");
         }
         if cs.contains(Charset::RUNIC) {
-            println!("  runic: \u{16A0}\u{16A2}\u{16A6}\u{16A8}");
+            s.field("runic", "\u{16A0}\u{16A2}\u{16A6}\u{16A8}");
         }
         if cs.contains(Charset::SYMBOLS) {
-            println!("  symbols: \u{221E}\u{2211}\u{222B}\u{221A}\u{03C0}");
+            s.field("symbols", "\u{221E}\u{2211}\u{222B}\u{221A}\u{03C0}");
         }
         if cs.contains(Charset::ARROWS) {
-            println!("  arrows: \u{2190}\u{2192}\u{2191}\u{2193}");
+            s.field("arrows", "\u{2190}\u{2192}\u{2191}\u{2193}");
         }
         if cs.contains(Charset::BLOCKS) {
-            println!("  blocks: \u{2591}\u{2592}\u{2593}\u{2588}");
+            s.field("blocks", "\u{2591}\u{2592}\u{2593}\u{2588}");
         }
         if cs.contains(Charset::BOXDRAW) {
-            println!("  boxdraw: \u{250C}\u{2510}\u{2514}\u{2518}\u{2500}\u{2502}");
+            s.field(
+                "boxdraw",
+                "\u{250C}\u{2510}\u{2514}\u{2518}\u{2500}\u{2502}",
+            );
         }
         if cs.contains(Charset::MINIMAL) {
-            println!("  minimal: \u{00B7}\u{2022}\u{25CB}\u{25CF}\u{25C7}\u{25C6}");
-        }
-    }
-
-    println!();
-    println!("ADVICE:");
-    let mut printed = false;
-    if !stdin_tty || !stdout_tty {
-        println!("  - run cosmostrix directly in a terminal (avoid piping/redirect)");
-        printed = true;
-    }
-    if !locale_utf8 {
-        println!("  - locale does not look like UTF-8; unicode charsets may render incorrectly");
-        println!("    try: export LANG=en_US.UTF-8");
-        printed = true;
-    }
-    if effective != ColorMode::TrueColor {
-        println!("  - for best colors use a truecolor terminal (COLORTERM=truecolor)");
-        printed = true;
-    }
-    if uses_unicode {
-        println!(
-            "  - selected charset uses unicode glyphs; if you see \u{25A1}\u{25A1}, change your terminal font"
-        );
-        if uses_katakana {
-            println!("    font suggestions (CJK): Noto Sans CJK JP, Source Han Sans, IPAexGothic");
-        } else {
-            println!("    font suggestions: Noto Sans Mono, DejaVu Sans Mono");
-        }
-        printed = true;
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        if env_var_truthy("COSMOSTRIX_NO_FORK_GUARD") {
-            println!(
-                "  - fork-based SIGKILL terminal guard is disabled; SIGKILL (-9) may leave your terminal broken"
+            s.field(
+                "minimal",
+                "\u{00B7}\u{2022}\u{25CB}\u{25CF}\u{25C7}\u{25C6}",
             );
-            printed = true;
+        }
+
+        // Re-borrow uses_unicode for ADVICE
+        if false {
+            let _ = uses_unicode;
         }
     }
-    if !printed {
-        println!("  - no issues detected");
+
+    // ADVICE section
+    {
+        let s = r.section("ADVICE");
+
+        if !stdin_tty || !stdout_tty {
+            s.advice("run cosmostrix directly in a terminal (avoid piping/redirect)");
+        }
+        if !locale_utf8 {
+            s.advice("locale does not look like UTF-8; unicode charsets may render incorrectly");
+            s.advice("try: export LANG=en_US.UTF-8");
+        }
+        if effective != ColorMode::TrueColor {
+            s.advice("for best colors use a truecolor terminal (COLORTERM=truecolor)");
+        }
+
+        // Re-check unicode usage for advice
+        let cs = match charset_from_str(&normalize_charset_preset_name(&args.charset), def_ascii) {
+            Ok(v) => v,
+            Err(_) => Charset::NONE,
+        };
+        let uses_katakana = cs.contains(Charset::KATAKANA);
+        let uses_unicode = uses_katakana
+            || cs.contains(Charset::GREEK)
+            || cs.contains(Charset::CYRILLIC)
+            || cs.contains(Charset::HEBREW)
+            || cs.contains(Charset::BRAILLE)
+            || cs.contains(Charset::RUNIC)
+            || cs.contains(Charset::SYMBOLS)
+            || cs.contains(Charset::ARROWS)
+            || cs.contains(Charset::BLOCKS)
+            || cs.contains(Charset::BOXDRAW)
+            || cs.contains(Charset::MINIMAL);
+
+        if uses_unicode {
+            s.advice("selected charset uses unicode glyphs; if you see \u{25A1}\u{25A1}, change your terminal font");
+            if uses_katakana {
+                s.advice("font suggestions (CJK): Noto Sans CJK JP, Source Han Sans, IPAexGothic");
+            } else {
+                s.advice("font suggestions: Noto Sans Mono, DejaVu Sans Mono");
+            }
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            if env_var_truthy("COSMOSTRIX_NO_FORK_GUARD") {
+                s.advice("fork-based SIGKILL terminal guard is disabled; SIGKILL (-9) may leave your terminal broken");
+            }
+        }
+
+        if headless {
+            s.advice("running headless (no TTY detected); some features may not work");
+        }
+
+        // If no advice was added, add the all-clear
+        if !s.has_advice() {
+            s.advice("no issues detected");
+        }
     }
+
+    r.print();
 }

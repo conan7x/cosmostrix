@@ -21,10 +21,71 @@ use crate::charset::{build_chars, charset_from_str};
 use crate::cloud::Cloud;
 use crate::constants::*;
 use crate::frame::Frame;
+use crate::report::Report;
 use crate::runtime::{ColorScheme, ShadingMode};
 use crate::terminal::{restore_terminal_best_effort, Terminal};
 
 use super::{cycle_charset_preset, cycle_color_scheme, effective_density, CloudConfig};
+
+/// Rolling frame time tracker: allocation-free fixed-size ring buffer.
+///
+/// Tracks the last 60 frame times in milliseconds. Only used when
+/// `--perf-stats` is enabled; otherwise has zero cost.
+struct FrameTimeTracker {
+    times: [f64; 60],
+    index: usize,
+    count: usize,
+}
+
+impl FrameTimeTracker {
+    const fn new() -> Self {
+        Self {
+            times: [0.0; 60],
+            index: 0,
+            count: 0,
+        }
+    }
+
+    fn push(&mut self, ms: f64) {
+        self.times[self.index] = ms;
+        self.index = (self.index + 1) % 60;
+        if self.count < 60 {
+            self.count += 1;
+        }
+    }
+
+    fn rolling_avg(&self) -> f64 {
+        if self.count == 0 {
+            return 0.0;
+        }
+        let sum: f64 = self.times[..self.count].iter().sum();
+        sum / self.count as f64
+    }
+
+    fn std_dev(&self) -> f64 {
+        if self.count < 2 {
+            return 0.0;
+        }
+        let mean = self.rolling_avg();
+        let variance: f64 = self.times[..self.count]
+            .iter()
+            .map(|&t| (t - mean) * (t - mean))
+            .sum::<f64>()
+            / (self.count - 1) as f64;
+        variance.sqrt()
+    }
+
+    fn jitter_classification(&self) -> &'static str {
+        let sd = self.std_dev();
+        if sd < 0.5 {
+            "low"
+        } else if sd < 2.0 {
+            "medium"
+        } else {
+            "high"
+        }
+    }
+}
 
 /// Global flag set when mouse capture was successfully enabled.
 /// Signal handlers check this to decide whether DisableMouseCapture is needed.
@@ -150,6 +211,7 @@ pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
     let mut perf_pressure_sum: f64 = 0.0;
     let mut perf_pressure_max: f32 = 0.0;
     let mut perf_overshoot_frames: u64 = 0;
+    let mut frame_time_tracker: FrameTimeTracker = FrameTimeTracker::new();
 
     let mut charset_preset = cfg.charset_preset.clone();
     let user_ranges = cfg.user_ranges.clone();
@@ -295,6 +357,7 @@ pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
             if overshoot > 0.0 {
                 perf_overshoot_frames = perf_overshoot_frames.saturating_add(1);
             }
+            frame_time_tracker.push(work_s as f64 * 1000.0);
         }
 
         let now = Instant::now();
@@ -318,26 +381,60 @@ pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
         let avg_pressure = perf_pressure_sum / frames as f64;
         let avg_fps = (perf_frames as f64) / elapsed_s;
         let drawn_ratio = (perf_drawn_frames as f64) / (perf_frames as f64).max(1.0);
+        let overshoot_ratio =
+            (perf_overshoot_frames as f64) / (perf_frames as f64).max(1.0) * 100.0;
+        let pressure_class = if avg_pressure < 0.05 {
+            "low"
+        } else if avg_pressure < 0.3 {
+            "medium"
+        } else {
+            "high"
+        };
 
-        println!("PERF STATS:");
-        println!("  elapsed_s: {:.3}", elapsed_s);
-        println!("  target_fps: {:.3}", cfg.target_fps);
-        println!("  avg_fps: {:.3}", avg_fps);
-        println!("  frames: {}", perf_frames);
-        println!(
-            "  drawn_frames: {} ({:.1}%)",
-            perf_drawn_frames,
-            drawn_ratio * 100.0
-        );
-        println!("  avg_work_ms: {:.3}", avg_work_ms);
-        println!("  max_work_ms: {:.3}", perf_work_max_s * 1000.0);
-        println!(
-            "  overshoot_frames: {} ({:.1}%)",
-            perf_overshoot_frames,
-            (perf_overshoot_frames as f64) / (perf_frames as f64).max(1.0) * 100.0
-        );
-        println!("  avg_perf_pressure: {:.3}", avg_pressure);
-        println!("  max_perf_pressure: {:.3}", perf_pressure_max);
+        let mut r = Report::new("COSMOSTRIX PERFORMANCE REPORT");
+
+        {
+            let s = r.section("TIMING");
+            s.field("elapsed", &format!("{:.3}s", elapsed_s));
+            s.field("target_fps", &format!("{:.3}", cfg.target_fps));
+            s.field("avg_fps", &format!("{:.3}", avg_fps));
+            s.field(
+                "rolling_avg_frame_time",
+                &format!("{:.3}ms", frame_time_tracker.rolling_avg()),
+            );
+        }
+
+        {
+            let s = r.section("FRAMES");
+            s.field("total", &perf_frames.to_string());
+            s.field(
+                "drawn",
+                &format!("{} ({:.1}%)", perf_drawn_frames, drawn_ratio * 100.0),
+            );
+            s.field(
+                "overshoot",
+                &format!("{} ({:.1}%)", perf_overshoot_frames, overshoot_ratio),
+            );
+        }
+
+        {
+            let s = r.section("LATENCY");
+            s.field("avg_frame_time", &format!("{:.3}ms", avg_work_ms));
+            s.field(
+                "max_frame_time",
+                &format!("{:.3}ms", perf_work_max_s * 1000.0),
+            );
+            s.field("jitter", frame_time_tracker.jitter_classification());
+        }
+
+        {
+            let s = r.section("PRESSURE");
+            s.field("avg", &format!("{:.3}", avg_pressure));
+            s.field("peak", &format!("{:.3}", perf_pressure_max));
+            s.field("classification", pressure_class);
+        }
+
+        r.print();
     }
 
     Ok(())

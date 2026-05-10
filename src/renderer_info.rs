@@ -1,0 +1,35 @@
+// Copyright (c) 2026 rezky_nightky
+
+//! Static renderer introspection metadata.
+//!
+//! Provides a single source of truth for renderer capabilities,
+//! used by --doctor, --benchmark, and --info outputs.
+
+use crate::runtime::ColorMode;
+
+/// Static renderer metadata describing the rendering pipeline.
+pub struct RendererInfo {
+    pub backend: &'static str,
+    pub pacing: &'static str,
+    pub unicode: &'static str,
+    pub frame_strategy: &'static str,
+    pub dirty_tracking: &'static str,
+    pub color_depth: &'static str,
+}
+
+/// Return the renderer info for the given effective color mode.
+pub fn renderer_info(color_mode: ColorMode) -> RendererInfo {
+    RendererInfo {
+        backend: "ansi-stream",
+        pacing: "adaptive",
+        unicode: "utf8-wcwidth",
+        frame_strategy: "differential",
+        dirty_tracking: "bitvec+generation",
+        color_depth: match color_mode {
+            ColorMode::TrueColor => "truecolor",
+            ColorMode::Color256 => "256",
+            ColorMode::Color16 => "16",
+            ColorMode::Mono => "mono",
+        },
+    }
+}
