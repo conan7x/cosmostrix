@@ -228,7 +228,7 @@ jobs:
           else
             OUT="$(${BIN} -i)"
             echo "${OUT}"
-            echo "${OUT}" | grep -E "^(build|Build): ${BUILD_ID}( \\([0-9a-f]+\\))?$"
+            echo "${OUT}" | grep -E "^  variant: ${BUILD_ID}$"
           fi
 
       - name: Verify build id
@@ -250,9 +250,9 @@ jobs:
             $outLines = & $bin -i
             $out = ($outLines | ForEach-Object { $_.TrimEnd("`r") }) -join "`n"
             $out
-            $pat = "(?m)^(build|Build): " + [regex]::Escape($build) + "( \([0-9a-f]+\))?\s*$"
+            $pat = "(?m)^  variant: " + [regex]::Escape($build) + "\s*$"
             if ($out -notmatch $pat) {
-              throw "Expected build id '$build' in cosmostrix -i output"
+              throw "Expected variant '$build' in cosmostrix -i output"
             }
           }
 
