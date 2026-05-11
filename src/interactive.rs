@@ -106,6 +106,13 @@ pub static FRAME_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::Atom
 /// watchdog thread can terminate instead of running forever.
 static SHUTDOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Graceful shutdown request flag. Set by signal handler threads instead of
+/// calling `restore_terminal_best_effort()` + `process::exit()` directly.
+/// The main loop checks this flag each iteration and exits cleanly, allowing
+/// `Terminal::drop()` to restore the terminal without racing on stdout.
+/// Falls back to direct restore after a timeout for stuck-loop protection.
+static GRACEFUL_SHUTDOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
     #[cfg(target_os = "linux")]
     super::spawn_kill9_terminal_guard();
@@ -118,15 +125,24 @@ pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
         if let Ok(mut signals) = Signals::new([SIGINT, SIGTERM, SIGHUP]) {
             std::thread::spawn(move || {
                 if let Some(sig) = signals.forever().next() {
-                    // Disable mouse capture before restoring terminal so the
-                    // terminal is not left in a broken state with mouse
-                    // reporting still active.
-                    if MOUSE_CAPTURE_ACTIVE.load(Ordering::Acquire) {
-                        use crossterm::ExecutableCommand;
-                        let _ = std::io::stdout().execute(crossterm::event::DisableMouseCapture);
+                    // Request graceful shutdown via AtomicBool instead of
+                    // directly writing ANSI restore sequences to stdout.
+                    // This avoids racing with the main thread on the same fd.
+                    GRACEFUL_SHUTDOWN.store(true, Ordering::Release);
+                    // Wait briefly for the main loop to notice and exit.
+                    // If the main loop is stuck (e.g., infinite loop), the
+                    // watchdog thread will handle the hard restore.
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                    // Fallback: if still alive after timeout, force restore.
+                    if !SHUTDOWN.load(Ordering::Acquire) {
+                        if MOUSE_CAPTURE_ACTIVE.load(Ordering::Acquire) {
+                            use crossterm::ExecutableCommand;
+                            let _ =
+                                std::io::stdout().execute(crossterm::event::DisableMouseCapture);
+                        }
+                        restore_terminal_best_effort();
+                        std::process::exit(128 + sig);
                     }
-                    restore_terminal_best_effort();
-                    std::process::exit(128 + sig);
                 }
             });
         }
@@ -162,12 +178,16 @@ pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
     #[cfg(windows)]
     {
         if let Err(e) = ctrlc::set_handler(|| {
-            if MOUSE_CAPTURE_ACTIVE.load(Ordering::Acquire) {
-                use crossterm::ExecutableCommand;
-                let _ = std::io::stdout().execute(crossterm::event::DisableMouseCapture);
+            GRACEFUL_SHUTDOWN.store(true, Ordering::Release);
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            if !SHUTDOWN.load(Ordering::Acquire) {
+                if MOUSE_CAPTURE_ACTIVE.load(Ordering::Acquire) {
+                    use crossterm::ExecutableCommand;
+                    let _ = std::io::stdout().execute(crossterm::event::DisableMouseCapture);
+                }
+                restore_terminal_best_effort();
+                std::process::exit(130);
             }
-            restore_terminal_best_effort();
-            std::process::exit(130);
         }) {
             eprintln!("failed to install Ctrl-C handler: {}", e);
         }
@@ -218,6 +238,14 @@ pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
     let def_ascii = cfg.def_ascii;
 
     while cloud.raining {
+        // Check for graceful shutdown request from signal handler.
+        // This allows clean exit via Terminal::drop() instead of racing
+        // on stdout with the signal handler thread.
+        if GRACEFUL_SHUTDOWN.load(Ordering::Acquire) {
+            cloud.raining = false;
+            break;
+        }
+
         let frame_period = if cloud.pause {
             pause_period
         } else {

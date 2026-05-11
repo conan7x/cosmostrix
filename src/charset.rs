@@ -1,6 +1,7 @@
 // Copyright (c) 2026 rezky_nightky
 
 use std::char;
+use unicode_width::UnicodeWidthChar;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Charset(u32);
@@ -37,6 +38,7 @@ impl Charset {
 
 pub fn parse_user_hex_chars(s: &str) -> Result<Vec<char>, String> {
     let mut out = Vec::new();
+    let mut skipped_wide = Vec::new();
     for (i, part) in s.split(',').enumerate() {
         let part = part.trim();
         if part.is_empty() {
@@ -55,7 +57,26 @@ pub fn parse_user_hex_chars(s: &str) -> Result<Vec<char>, String> {
                 v
             ));
         }
+        // Reject wide characters (CJK fullwidth, emoji, etc.) — the renderer
+        // is column-based and assumes 1 cell per character. Wide chars would
+        // corrupt glyph alignment and overflow into adjacent columns.
+        if ch.width().unwrap_or(0) != 1 {
+            skipped_wide.push(format!("U+{:04X}", v));
+            continue;
+        }
         out.push(ch);
+    }
+    if !skipped_wide.is_empty() && !out.is_empty() {
+        eprintln!(
+            "[cosmostrix] warning: skipped {} wide character(s) (not single-width): {}",
+            skipped_wide.len(),
+            skipped_wide.join(", ")
+        );
+    }
+    if out.is_empty() && !s.trim().is_empty() {
+        return Err(
+            "all provided characters were wide or control codes — nothing to render".to_string(),
+        );
     }
     Ok(out)
 }
@@ -113,7 +134,12 @@ pub fn charset_from_str(spec: &str, default_to_ascii: bool) -> Result<Charset, S
 fn push_range(out: &mut Vec<char>, start: u32, end: u32) {
     for v in start..=end {
         if let Some(ch) = char::from_u32(v) {
-            out.push(ch);
+            // Only include characters that occupy exactly 1 terminal column.
+            // Wide (CJK/fullwidth) and zero-width characters are excluded
+            // to prevent glyph alignment corruption in the renderer.
+            if ch.width() == Some(1) {
+                out.push(ch);
+            }
         }
     }
 }
@@ -173,10 +199,14 @@ pub fn build_chars(
         push_range(&mut out, 0x16A0, 0x16FF);
     }
     if charset.contains(Charset::SYMBOLS) {
-        out.extend("∞∑∫√π∆Ωµλ≈≠≤≥×÷±∂∇∈∉∩∪⊂⊃⊆⊇⊕⊗".chars());
+        out.extend(
+            "∞∑∫√π∆Ωµλ≈≠≤≥×÷±∂∇∈∉∩∪⊂⊃⊆⊇⊕⊗"
+                .chars()
+                .filter(|&c| c.width() == Some(1)),
+        );
     }
     if charset.contains(Charset::ARROWS) {
-        out.extend("←→↑↓↔↕⇐⇒⇑⇓⇔↖↗↘↙".chars());
+        out.extend("←→↑↓↔↕⇐⇒⇑⇓⇔↖↗↘↙".chars().filter(|&c| c.width() == Some(1)));
     }
     if charset.contains(Charset::BLOCKS) {
         push_range(&mut out, 0x2580, 0x259F);
@@ -185,10 +215,14 @@ pub fn build_chars(
         push_range(&mut out, 0x2500, 0x257F);
     }
     if charset.contains(Charset::MINIMAL) {
-        out.extend(".:-=+*·•○●◦◌◍◉◎◇◆□■".chars());
+        out.extend(
+            ".:-=+*·•○●◦◌◍◉◎◇◆□■"
+                .chars()
+                .filter(|&c| c.width() == Some(1)),
+        );
     }
     if charset.contains(Charset::DNA) {
-        out.extend("ACGTacgt".chars());
+        out.extend("ACGTacgt".chars().filter(|&c| c.width() == Some(1)));
     }
 
     for &(a, b) in user_ranges {
@@ -196,7 +230,12 @@ pub fn build_chars(
         let end = b as u32;
         for v in start..=end {
             if let Some(ch) = char::from_u32(v) {
-                out.push(ch);
+                // Filter user-provided chars: only single-width characters
+                // are safe for the column-based renderer. Wide characters
+                // (e.g., CJK fullwidth) would corrupt glyph alignment.
+                if ch.width() == Some(1) {
+                    out.push(ch);
+                }
             }
         }
     }

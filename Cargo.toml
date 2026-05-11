@@ -15,6 +15,7 @@ crossterm = "0.29"
 rand = "0.9"
 bitvec = "1"
 smallvec = "1"
+unicode-width = "0.2"
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3"

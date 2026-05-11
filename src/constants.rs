@@ -132,6 +132,14 @@ pub const MAX_TERMINAL_COLS: u16 = 1024;
 /// Maximum allowed terminal height (lines).  Same rationale as above.
 pub const MAX_TERMINAL_LINES: u16 = 500;
 
+/// Minimum usable terminal width (columns). Below this, the renderer
+/// refuses to start to avoid degenerate edge cases (empty frame, zero
+/// droplets, divide-by-zero in column math).
+pub const MIN_TERMINAL_COLS: u16 = 4;
+
+/// Minimum usable terminal height (lines). Same rationale as above.
+pub const MIN_TERMINAL_LINES: u16 = 4;
+
 // ---------------------------------------------------------------------------
 // Benchmark
 // ---------------------------------------------------------------------------
@@ -438,3 +446,13 @@ pub const EMERGENT_DENSITY_INTENSITY: f32 = 0.25;
 
 /// Intensity of emergent speed shift (slow-motion or acceleration).
 pub const EMERGENT_SPEED_SHIFT: f32 = 0.15;
+
+// ---------------------------------------------------------------------------
+// Hardening: drift correction & terminal safety
+// ---------------------------------------------------------------------------
+
+/// Interval (in frames) between forced full screen redraws.
+/// Prevents accumulated ANSI state desync over long sessions.
+/// At 60fps this triggers roughly every 5 minutes — frequent enough to
+/// catch drift but rare enough for zero perceptual impact.
+pub const FULL_REDRAW_INTERVAL_FRAMES: u64 = 18000;

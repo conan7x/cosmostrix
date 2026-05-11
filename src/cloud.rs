@@ -877,6 +877,11 @@ pub struct Cloud {
 
     force_draw_everything: bool,
 
+    /// Frame counter for periodic full redraw (ANSI drift correction).
+    /// Every `FULL_REDRAW_INTERVAL_FRAMES`, forces a complete screen refresh
+    /// to correct any accumulated terminal state desync.
+    frames_since_full_redraw: u64,
+
     perf_pressure: f32,
     max_sim_delta: Duration,
 
@@ -1033,6 +1038,7 @@ impl Cloud {
             spawn_remainder: 0.0,
             pause_time: None,
             force_draw_everything: false,
+            frames_since_full_redraw: 0,
             perf_pressure: 0.0,
             max_sim_delta: Duration::from_millis(0),
             shading_mode,
@@ -2443,11 +2449,20 @@ impl Cloud {
         // Density modulation from atmosphere + memory
         let _atmo_density_mod =
             1.0 + self.atmosphere.density_offset - self.memory.brightness_cooling;
-        // Luminance modulation from ecosystem + atmosphere + memory + emergent
-        let _emergent_effects = self.storytelling.active_effects(now);
 
         // 7. Apply Phase 3 global atmospheric frame effects (post-process)
         self.apply_atmospheric_frame_effects(frame, now);
+
+        // --- Periodic full redraw for ANSI drift correction ---
+        // Every N frames, force a complete screen refresh. This corrects any
+        // accumulated terminal state desync (e.g., from resize, scroll, or
+        // rare edge cases in differential rendering) without measurable perf
+        // impact since full redraws are already optimized with row batching.
+        self.frames_since_full_redraw += 1;
+        if self.frames_since_full_redraw >= FULL_REDRAW_INTERVAL_FRAMES {
+            self.frames_since_full_redraw = 0;
+            self.force_draw_everything = true;
+        }
 
         if time_for_glitch || glitch_due {
             self.last_glitch_time = now;

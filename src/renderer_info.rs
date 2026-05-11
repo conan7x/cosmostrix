@@ -22,7 +22,7 @@ pub fn renderer_info(color_mode: ColorMode) -> RendererInfo {
     RendererInfo {
         backend: "ansi-stream",
         pacing: "adaptive",
-        unicode: "utf8-wcwidth",
+        unicode: "utf8-singlewidth",
         frame_strategy: "differential",
         dirty_tracking: "bitvec+generation",
         color_depth: match color_mode {

@@ -14,7 +14,8 @@ use crossterm::{
 
 use crate::cell::Cell;
 use crate::constants::{
-    DIRTY_THRESHOLD_RATIO, MAX_TERMINAL_COLS, MAX_TERMINAL_LINES, SHUTDOWN_TIMEOUT_SECS,
+    DIRTY_THRESHOLD_RATIO, MAX_TERMINAL_COLS, MAX_TERMINAL_LINES, MIN_TERMINAL_COLS,
+    MIN_TERMINAL_LINES, SHUTDOWN_TIMEOUT_SECS,
 };
 use crate::frame::Frame;
 
@@ -96,6 +97,9 @@ impl Terminal {
         // Clamp to prevent OOM from misreported terminal sizes
         let w = w.min(MAX_TERMINAL_COLS);
         let h = h.min(MAX_TERMINAL_LINES);
+        // Floor to prevent degenerate rendering in tiny terminals
+        let w = w.max(MIN_TERMINAL_COLS);
+        let h = h.max(MIN_TERMINAL_LINES);
         Ok((w, h))
     }
 
