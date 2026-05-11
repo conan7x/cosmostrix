@@ -69,8 +69,8 @@ use clap::{CommandFactory, FromArgMatches};
 use crate::charset::{build_chars, charset_from_str, parse_user_hex_chars};
 use crate::cloud::Cloud;
 use crate::config::{
-    color_enabled_stdout, print_help_detail, print_list_charsets, print_list_colors, Args, ColorBg,
-    GlitchLevel, U16Range,
+    color_enabled_stdout, print_defaults, print_help_detail, print_list_charsets,
+    print_list_colors, Args, ColorBg, GlitchLevel, U16Range,
 };
 use crate::constants::*;
 use crate::runtime::{BoldMode, ColorMode, ColorScheme, ShadingMode};
@@ -923,6 +923,11 @@ fn main() -> std::io::Result<()> {
         return Ok(());
     }
 
+    if args.defaults {
+        print_defaults();
+        return Ok(());
+    }
+
     if args.help_detail {
         print_help_detail();
         return Ok(());
@@ -1006,6 +1011,19 @@ fn main() -> std::io::Result<()> {
                 "est_memory_per_frame (200x60)",
                 &format_bytes(estimate_memory_budget(200, 60)),
             );
+        }
+        {
+            let s = r.section("RUNTIME PROFILE");
+            s.field("fps", &format!("{}", args.fps));
+            s.field("speed", &format!("{}", args.speed));
+            s.field("density", &format!("{}", args.density));
+            s.field("color", &args.color);
+            s.field("charset", &args.charset);
+            s.field(
+                "glitch_level",
+                &format!("{:?}", args.glitch_level).to_lowercase(),
+            );
+            s.field_if("low_power", "on", args.low_power);
         }
         r.print();
         return Ok(());

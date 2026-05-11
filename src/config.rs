@@ -284,6 +284,14 @@ pub struct Args {
     )]
     pub list_charsets: bool,
 
+    #[arg(
+        long = "defaults",
+        help_heading = "DISCOVERY",
+        display_order = 220,
+        help = "Show the default runtime profile"
+    )]
+    pub defaults: bool,
+
     // === HELP (visible in --help) ===
     #[arg(
         long = "help-detail",
@@ -518,6 +526,22 @@ pub fn print_list_colors() {
     println!("  supernova    blackhole    andromeda");
     println!("  stardust     meteor       eclipse");
     println!("  deepspace");
+}
+
+pub fn print_defaults() {
+    if color_enabled_stdout() {
+        println!("\x1b[1mCOSMOSTRIX DEFAULT PROFILE\x1b[0m");
+    } else {
+        println!("COSMOSTRIX DEFAULT PROFILE");
+    }
+    println!("{}", "\u{2500}".repeat(27));
+    println!("cosmostrix \\");
+    println!("  --fps 60 \\");
+    println!("  --speed 8 \\");
+    println!("  --density 1 \\");
+    println!("  --color green \\");
+    println!("  --charset binary \\");
+    println!("  --glitch-level default");
 }
 
 // ---------------------------------------------------------------------------
