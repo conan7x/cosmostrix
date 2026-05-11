@@ -70,6 +70,19 @@ pub struct DrawCtx<'a> {
     pub flash_line: u16,
     /// Flash effect start time (None if no active flash).
     pub flash_time: Option<Instant>,
+
+    /// Global luminance climate modifier from color ecosystem.
+    pub luminance_climate: f32,
+    /// Global saturation climate modifier from color ecosystem.
+    pub saturation_climate: f32,
+    /// Instability pressure from renderer memory.
+    pub instability_pressure: f32,
+    /// Persistence richness from renderer memory.
+    pub persistence_richness: f32,
+    /// Emergent visual effects currently active.
+    pub emergent_effects: EmergentEffects,
+    /// Current profile params (interpolated).
+    pub profile_params: ProfileParams,
 }
 
 impl DrawCtx<'_> {
@@ -245,6 +258,470 @@ struct AnomalyZone {
     start_time: Instant,
 }
 
+// ---------------------------------------------------------------------------
+// Phase 3: Autonomous cinematic ecosystem
+// ---------------------------------------------------------------------------
+
+/// Cinematic runtime behavior profiles — atmospheric identities that
+/// fundamentally alter how the renderer feels, moves, and breathes.
+/// These are NOT simple recolors; each profile defines a behavioral ecosystem.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BehaviorProfile {
+    Monolith,
+    Void,
+    Neural,
+    Decay,
+    Eclipse,
+    Static,
+    Pulse,
+}
+
+impl BehaviorProfile {
+    fn name(self) -> &'static str {
+        match self {
+            BehaviorProfile::Monolith => "Monolith",
+            BehaviorProfile::Void => "Void",
+            BehaviorProfile::Neural => "Neural",
+            BehaviorProfile::Decay => "Decay",
+            BehaviorProfile::Eclipse => "Eclipse",
+            BehaviorProfile::Static => "Static",
+            BehaviorProfile::Pulse => "Pulse",
+        }
+    }
+
+    fn cycle(self) -> Self {
+        match self {
+            BehaviorProfile::Monolith => BehaviorProfile::Void,
+            BehaviorProfile::Void => BehaviorProfile::Neural,
+            BehaviorProfile::Neural => BehaviorProfile::Decay,
+            BehaviorProfile::Decay => BehaviorProfile::Eclipse,
+            BehaviorProfile::Eclipse => BehaviorProfile::Static,
+            BehaviorProfile::Static => BehaviorProfile::Pulse,
+            BehaviorProfile::Pulse => BehaviorProfile::Monolith,
+        }
+    }
+
+    fn params(self) -> ProfileParams {
+        match self {
+            BehaviorProfile::Monolith => ProfileParams {
+                speed_mult: 0.5, density_mult: 1.3, turbulence_mult: 0.3,
+                phosphor_decay_mult: 0.4, anomaly_freq_mult: 0.4, luminance_offset: -0.1,
+                persistence_boost: 0.3, entropy_rate: 0.3, short_pct: 0.2, linger_mult: 2.0,
+            },
+            BehaviorProfile::Void => ProfileParams {
+                speed_mult: 0.7, density_mult: 0.4, turbulence_mult: 0.1,
+                phosphor_decay_mult: 1.5, anomaly_freq_mult: 0.2, luminance_offset: -0.2,
+                persistence_boost: -0.1, entropy_rate: 0.2, short_pct: 0.7, linger_mult: 0.5,
+            },
+            BehaviorProfile::Neural => ProfileParams {
+                speed_mult: 1.5, density_mult: 1.6, turbulence_mult: 2.0,
+                phosphor_decay_mult: 0.8, anomaly_freq_mult: 2.0, luminance_offset: 0.1,
+                persistence_boost: 0.1, entropy_rate: 1.5, short_pct: 0.5, linger_mult: 0.8,
+            },
+            BehaviorProfile::Decay => ProfileParams {
+                speed_mult: 0.6, density_mult: 0.7, turbulence_mult: 0.5,
+                phosphor_decay_mult: 0.3, anomaly_freq_mult: 0.6, luminance_offset: -0.15,
+                persistence_boost: 0.4, entropy_rate: 0.5, short_pct: 0.6, linger_mult: 1.5,
+            },
+            BehaviorProfile::Eclipse => ProfileParams {
+                speed_mult: 0.8, density_mult: 1.0, turbulence_mult: 1.0,
+                phosphor_decay_mult: 0.6, anomaly_freq_mult: 1.5, luminance_offset: 0.0,
+                persistence_boost: 0.2, entropy_rate: 0.8, short_pct: 0.4, linger_mult: 1.2,
+            },
+            BehaviorProfile::Static => ProfileParams {
+                speed_mult: 0.2, density_mult: 0.3, turbulence_mult: 0.05,
+                phosphor_decay_mult: 0.2, anomaly_freq_mult: 0.1, luminance_offset: -0.25,
+                persistence_boost: 0.5, entropy_rate: 0.1, short_pct: 0.9, linger_mult: 3.0,
+            },
+            BehaviorProfile::Pulse => ProfileParams {
+                speed_mult: 1.2, density_mult: 1.1, turbulence_mult: 1.3,
+                phosphor_decay_mult: 0.9, anomaly_freq_mult: 1.0, luminance_offset: 0.05,
+                persistence_boost: 0.15, entropy_rate: 1.2, short_pct: 0.3, linger_mult: 1.0,
+            },
+        }
+    }
+}
+
+/// Tuning parameters for a cinematic behavior profile.
+/// Each value is a multiplier (1.0 = default behavior).
+#[derive(Clone, Copy, Debug)]
+pub struct ProfileParams {
+    pub speed_mult: f32,
+    pub density_mult: f32,
+    pub turbulence_mult: f32,
+    pub phosphor_decay_mult: f32,
+    pub anomaly_freq_mult: f32,
+    pub luminance_offset: f32,
+    pub persistence_boost: f32,
+    pub entropy_rate: f32,
+    pub short_pct: f32,
+    pub linger_mult: f32,
+}
+
+fn lerp_profile_params(a: ProfileParams, b: ProfileParams, t: f32) -> ProfileParams {
+    ProfileParams {
+        speed_mult: a.speed_mult + (b.speed_mult - a.speed_mult) * t,
+        density_mult: a.density_mult + (b.density_mult - a.density_mult) * t,
+        turbulence_mult: a.turbulence_mult + (b.turbulence_mult - a.turbulence_mult) * t,
+        phosphor_decay_mult: a.phosphor_decay_mult + (b.phosphor_decay_mult - a.phosphor_decay_mult) * t,
+        anomaly_freq_mult: a.anomaly_freq_mult + (b.anomaly_freq_mult - a.anomaly_freq_mult) * t,
+        luminance_offset: a.luminance_offset + (b.luminance_offset - a.luminance_offset) * t,
+        persistence_boost: a.persistence_boost + (b.persistence_boost - a.persistence_boost) * t,
+        entropy_rate: a.entropy_rate + (b.entropy_rate - a.entropy_rate) * t,
+        short_pct: a.short_pct + (b.short_pct - a.short_pct) * t,
+        linger_mult: a.linger_mult + (b.linger_mult - a.linger_mult) * t,
+    }
+}
+
+/// Returns 3-4 atmospherically related color schemes for autonomous palette drift.
+fn related_schemes(scheme: ColorScheme) -> &'static [ColorScheme] {
+    use ColorScheme::*;
+    match scheme {
+        Green => &[Green2, Green3, Aurora, Forest],
+        Green2 => &[Green, Green3, Forest, Aurora],
+        Green3 => &[Green, Green2, Forest],
+        Gold => &[Yellow, Orange, Sun, Fire],
+        Yellow => &[Gold, Orange, Sun],
+        Orange => &[Gold, Fire, Sun, Yellow],
+        Red => &[Fire, Orange, Supernova, Meteor],
+        Blue => &[Ocean, DeepSpace, Neptune, Comet],
+        Cyan => &[Aurora, Ocean, Neptune, Uranus],
+        Purple => &[Nebula, Cosmos, Vaporwave, Galaxy],
+        Neon => &[Vaporwave, Aurora, Cosmos, Nebula],
+        Fire => &[Red, Orange, Supernova, Meteor],
+        Ocean => &[Blue, DeepSpace, Neptune, Cyan],
+        Forest => &[Green, Green2, Aurora, Green3],
+        Vaporwave => &[Neon, Purple, Nebula, Cosmos],
+        Gray => &[Mercury, Snow, Moon],
+        Rainbow => &[Spectrum20, Neon, Vaporwave],
+        Snow => &[Gray, Moon, Mercury, Stars],
+        Aurora => &[Green, Cyan, Forest, Neon],
+        FancyDiamond => &[Cyan, Snow, Nebula, Stardust],
+        Cosmos => &[DeepSpace, Nebula, Galaxy, Purple],
+        Nebula => &[Cosmos, Purple, Galaxy, Stardust],
+        Spectrum20 => &[Rainbow, Neon, Vaporwave],
+        Stars => &[DeepSpace, Cosmos, Galaxy, Comet],
+        Mars => &[Red, Fire, Meteor, Supernova],
+        Venus => &[Gold, Yellow, Sun, Orange],
+        Mercury => &[Gray, Moon, Snow],
+        Jupiter => &[Orange, Gold, Sun, Saturn],
+        Saturn => &[Jupiter, Gold, Venus, Yellow],
+        Uranus => &[Cyan, Neptune, Ocean, Aurora],
+        Neptune => &[Blue, Ocean, DeepSpace, Uranus],
+        Pluto => &[Mercury, Gray, Moon, DeepSpace],
+        Moon => &[Gray, Mercury, Snow, Stars],
+        Sun => &[Gold, Yellow, Venus, Fire],
+        Comet => &[Blue, Stars, DeepSpace, Cyan],
+        Galaxy => &[Cosmos, Nebula, DeepSpace, Stardust],
+        Supernova => &[Fire, Red, Meteor, Mars],
+        BlackHole => &[DeepSpace, Cosmos, Nebula, Pluto],
+        Andromeda => &[Cosmos, Nebula, Galaxy, Stardust],
+        Stardust => &[Galaxy, Nebula, Cosmos, FancyDiamond],
+        Meteor => &[Fire, Red, Mars, Supernova],
+        Eclipse => &[BlackHole, DeepSpace, Cosmos, Nebula],
+        DeepSpace => &[Cosmos, BlackHole, Galaxy, Stars],
+        // Catch-all for future variants
+        #[allow(unreachable_patterns)]
+        _ => &[Green, Blue, Cyan],
+    }
+}
+
+/// Autonomous color ecosystem: slow palette drift, luminance climate shifts,
+/// and tonal migration that makes the renderer feel atmospherically alive.
+struct ColorEcosystem {
+    luminance_climate: f32,
+    saturation_climate: f32,
+    hue_drift: f32,
+    luminance_direction: f32,
+    saturation_direction: f32,
+    hue_direction: f32,
+    last_tick: Instant,
+    #[allow(dead_code)]
+    palette_drift_target: Option<ColorScheme>,
+    #[allow(dead_code)]
+    palette_drift_start: Option<Instant>,
+    drift_count: u32,
+}
+
+impl ColorEcosystem {
+    fn new(now: Instant) -> Self {
+        Self {
+            luminance_climate: 0.8,
+            saturation_climate: 0.8,
+            hue_drift: 0.0,
+            luminance_direction: 0.0,
+            saturation_direction: 0.0,
+            hue_direction: 0.0,
+            last_tick: now,
+            palette_drift_target: None,
+            palette_drift_start: None,
+            drift_count: 0,
+        }
+    }
+
+    fn tick(&mut self, now: Instant, mt: &mut StdRng, current_scheme: ColorScheme) -> Option<ColorScheme> {
+        let elapsed = now.saturating_duration_since(self.last_tick).as_secs_f32();
+        if elapsed < COLOR_ECOSYSTEM_TICK_SECS {
+            return None;
+        }
+        self.last_tick = now;
+
+        // Randomly re-evaluate drift directions
+        let chance_dist = Uniform::new(0.0f32, 1.0f32).expect("chance_dist always valid");
+        if chance_dist.sample(mt) < COLOR_DRIFT_REEVAL_CHANCE {
+            self.luminance_direction = if chance_dist.sample(mt) < 0.5 { -1.0 } else { 1.0 };
+        }
+        if chance_dist.sample(mt) < COLOR_DRIFT_REEVAL_CHANCE {
+            self.saturation_direction = if chance_dist.sample(mt) < 0.5 { -1.0 } else { 1.0 };
+        }
+        if chance_dist.sample(mt) < COLOR_DRIFT_REEVAL_CHANCE {
+            self.hue_direction = if chance_dist.sample(mt) < 0.5 { -1.0 } else { 1.0 };
+        }
+
+        // Apply drift rates
+        self.luminance_climate += self.luminance_direction * COLOR_CLIMATE_DRIFT_RATE;
+        self.saturation_climate += self.saturation_direction * COLOR_SATURATION_DRIFT_RATE;
+        self.hue_drift += self.hue_direction * COLOR_HUE_DRIFT_RATE;
+
+        // Clamp values
+        self.luminance_climate = self.luminance_climate.clamp(COLOR_LUMINANCE_CLIMATE_MIN, COLOR_LUMINANCE_CLIMATE_MAX);
+        self.saturation_climate = self.saturation_climate.clamp(COLOR_SATURATION_CLIMATE_MIN, COLOR_SATURATION_CLIMATE_MAX);
+        self.hue_drift = self.hue_drift.clamp(-std::f32::consts::PI, std::f32::consts::PI);
+
+        // Autonomous palette drift
+        if chance_dist.sample(mt) < AUTONOMOUS_PALETTE_DRIFT_CHANCE {
+            let related = related_schemes(current_scheme);
+            if !related.is_empty() {
+                let idx_dist = Uniform::new_inclusive(0usize, related.len().saturating_sub(1))
+                    .expect("related_schemes idx always valid");
+                let new_scheme = related[idx_dist.sample(mt)];
+                self.drift_count += 1;
+                return Some(new_scheme);
+            }
+        }
+
+        None
+    }
+}
+
+/// Autonomous atmospheric evolution: entropy cycles, density migration,
+/// luminance shifts, anomaly pressure fluctuations. All slow, smooth, cinematic.
+struct AtmosphericEvolution {
+    entropy_phase: f32,
+    last_tick: Instant,
+    density_offset: f32,
+    luminance_offset: f32,
+    anomaly_offset: f32,
+    cycle_speed: f32,
+}
+
+impl AtmosphericEvolution {
+    fn new(now: Instant) -> Self {
+        Self {
+            entropy_phase: 0.0,
+            last_tick: now,
+            density_offset: 0.0,
+            luminance_offset: 0.0,
+            anomaly_offset: 0.0,
+            cycle_speed: 1.0,
+        }
+    }
+
+    fn tick(&mut self, now: Instant, profile_entropy_rate: f32) {
+        let elapsed = now.saturating_duration_since(self.last_tick).as_secs_f32();
+        if elapsed < ATMOSPHERE_TICK_SECS {
+            return;
+        }
+        self.last_tick = now;
+        self.cycle_speed = profile_entropy_rate;
+
+        self.entropy_phase += (elapsed / ENTROPY_CYCLE_SECS) * self.cycle_speed;
+        self.entropy_phase = self.entropy_phase % 1.0;
+
+        let tau = std::f32::consts::TAU;
+        self.density_offset = (self.entropy_phase * tau).sin() * ATMOSPHERE_DENSITY_RANGE;
+        self.luminance_offset = (self.entropy_phase * tau + std::f32::consts::FRAC_PI_3).sin() * ATMOSPHERE_LUMINANCE_RANGE;
+        self.anomaly_offset = (self.entropy_phase * tau + 2.0 * std::f32::consts::FRAC_PI_3).sin() * ATMOSPHERE_ANOMALY_RANGE;
+    }
+}
+
+/// Long-timescale renderer memory: historical influence on current rendering.
+/// Remembers anomaly history, density history, luminance pressure.
+struct RendererMemory {
+    anomaly_history: [f32; MEMORY_HISTORY_SAMPLES],
+    density_history: [f32; MEMORY_HISTORY_SAMPLES],
+    luminance_history: [f32; MEMORY_HISTORY_SAMPLES],
+    history_idx: usize,
+    last_sample: Instant,
+    instability_pressure: f32,
+    persistence_richness: f32,
+    brightness_cooling: f32,
+}
+
+impl RendererMemory {
+    fn new(now: Instant) -> Self {
+        Self {
+            anomaly_history: [0.0; MEMORY_HISTORY_SAMPLES],
+            density_history: [0.0; MEMORY_HISTORY_SAMPLES],
+            luminance_history: [0.0; MEMORY_HISTORY_SAMPLES],
+            history_idx: 0,
+            last_sample: now,
+            instability_pressure: 0.0,
+            persistence_richness: 0.0,
+            brightness_cooling: 0.0,
+        }
+    }
+
+    fn record_sample(&mut self, now: Instant, anomaly_density: f32, rain_density: f32, luminance: f32) {
+        let elapsed = now.saturating_duration_since(self.last_sample).as_secs_f32();
+        if elapsed < MEMORY_SAMPLE_INTERVAL_SECS {
+            return;
+        }
+        self.last_sample = now;
+        self.anomaly_history[self.history_idx] = anomaly_density;
+        self.density_history[self.history_idx] = rain_density;
+        self.luminance_history[self.history_idx] = luminance;
+        self.history_idx = (self.history_idx + 1) % MEMORY_HISTORY_SAMPLES;
+    }
+
+    fn recompute_derived(&mut self) {
+        let n = MEMORY_HISTORY_SAMPLES as f32;
+        let avg_anomaly: f32 = self.anomaly_history.iter().sum::<f32>() / n;
+        let avg_density: f32 = self.density_history.iter().sum::<f32>() / n;
+
+        self.instability_pressure = avg_anomaly * MEMORY_ANOMALY_PRESSURE_WEIGHT;
+        self.persistence_richness = (1.0 - avg_anomaly) * MEMORY_CALM_PERSISTENCE_BOOST;
+        self.brightness_cooling = avg_density * MEMORY_DENSITY_BRIGHTNESS_COOL;
+    }
+}
+
+/// Kind of emergent visual moment.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum EmergentKind {
+    LuminanceSwell,
+    DensityPulse,
+    TemporalDilation,
+}
+
+/// An active emergent moment.
+#[derive(Clone, Debug)]
+struct EmergentMoment {
+    kind: EmergentKind,
+    start_time: Instant,
+    duration: f32,
+}
+
+/// Current emergent effects applied to rendering.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EmergentEffects {
+    pub luminance_boost: f32,
+    pub density_boost: f32,
+    pub speed_shift: f32,
+}
+
+/// Emergent visual storytelling system: watches for convergence conditions
+/// across other systems and occasionally produces emotionally resonant moments.
+struct StorytellingState {
+    moments: Vec<EmergentMoment>,
+    last_tick: Instant,
+    cooldown_until: Option<Instant>,
+}
+
+impl StorytellingState {
+    fn new(now: Instant) -> Self {
+        Self {
+            moments: Vec::new(),
+            last_tick: now,
+            cooldown_until: None,
+        }
+    }
+
+    fn tick(
+        &mut self,
+        now: Instant,
+        mt: &mut StdRng,
+        evolution: &AtmosphericEvolution,
+        memory: &RendererMemory,
+        ecosystem: &ColorEcosystem,
+    ) -> Option<EmergentKind> {
+        let elapsed = now.saturating_duration_since(self.last_tick).as_secs_f32();
+        if elapsed < STORYTELLING_TICK_SECS {
+            return None;
+        }
+        self.last_tick = now;
+
+        // Check cooldown
+        if let Some(until) = self.cooldown_until {
+            if now < until {
+                return None;
+            }
+        }
+
+        // Check max moments
+        if self.moments.len() >= EMERGENT_MAX_MOMENTS {
+            return None;
+        }
+
+        // Convergence conditions
+        let entropy_near_peak = (evolution.entropy_phase - 0.5).abs() < 0.15;
+        let has_instability = memory.instability_pressure > 0.1;
+        let not_too_bright = ecosystem.luminance_climate < 0.85;
+
+        if !entropy_near_peak || !has_instability || !not_too_bright {
+            return None;
+        }
+
+        // Roll for emergent moment
+        let chance_dist = Uniform::new(0.0f32, 1.0f32).expect("chance_dist always valid");
+        if chance_dist.sample(mt) < EMERGENT_MOMENT_CHANCE {
+            let kind_roll = chance_dist.sample(mt);
+            let kind = if kind_roll < 0.33 {
+                EmergentKind::LuminanceSwell
+            } else if kind_roll < 0.66 {
+                EmergentKind::DensityPulse
+            } else {
+                EmergentKind::TemporalDilation
+            };
+            self.cooldown_until = Some(now + Duration::from_secs_f32(EMERGENT_MOMENT_DURATION_SECS + 60.0));
+            return Some(kind);
+        }
+
+        None
+    }
+
+    fn active_effects(&self, now: Instant) -> EmergentEffects {
+        let mut effects = EmergentEffects::default();
+        for moment in &self.moments {
+            let elapsed = now.saturating_duration_since(moment.start_time).as_secs_f32();
+            if elapsed >= moment.duration {
+                continue;
+            }
+            let progress = elapsed / moment.duration;
+            let sin_pi = (progress * std::f32::consts::PI).sin();
+            match moment.kind {
+                EmergentKind::LuminanceSwell => {
+                    effects.luminance_boost += EMERGENT_LUMINANCE_INTENSITY * sin_pi;
+                }
+                EmergentKind::DensityPulse => {
+                    effects.density_boost += EMERGENT_DENSITY_INTENSITY * sin_pi;
+                }
+                EmergentKind::TemporalDilation => {
+                    effects.speed_shift -= EMERGENT_SPEED_SHIFT * sin_pi;
+                }
+            }
+        }
+        effects
+    }
+
+    /// Expire moments past their duration. Must be called separately since
+    /// active_effects only borrows &self.
+    fn expire_moments(&mut self, now: Instant) {
+        self.moments.retain(|m| {
+            now.saturating_duration_since(m.start_time).as_secs_f32() < m.duration
+        });
+    }
+}
+
 pub struct Cloud {
     pub lines: u16,
     pub cols: u16,
@@ -378,6 +855,25 @@ pub struct Cloud {
     // --- Rare anomaly events ---
     /// Active anomaly zones currently affecting the screen.
     anomaly_zones: Vec<AnomalyZone>,
+
+    // --- Phase 3: Autonomous cinematic ecosystem ---
+    /// Active cinematic behavior profile.
+    profile: BehaviorProfile,
+    /// Interpolated profile params (current, transitioning toward target).
+    profile_current: ProfileParams,
+    /// Target profile params (what we're transitioning toward).
+    profile_target: ProfileParams,
+    /// Time when profile transition started.
+    profile_transition_start: Option<Instant>,
+
+    /// Temporal color ecosystem.
+    color_ecosystem: ColorEcosystem,
+    /// Autonomous atmospheric evolution.
+    atmosphere: AtmosphericEvolution,
+    /// Long-timescale renderer memory.
+    memory: RendererMemory,
+    /// Emergent visual storytelling.
+    storytelling: StorytellingState,
 }
 
 impl Cloud {
@@ -472,6 +968,14 @@ impl Cloud {
             phosphor_fresh: BitVec::new(),
             last_phosphor_time: now,
             anomaly_zones: Vec::new(),
+            profile: BehaviorProfile::Monolith,
+            profile_current: BehaviorProfile::Monolith.params(),
+            profile_target: BehaviorProfile::Monolith.params(),
+            profile_transition_start: None,
+            color_ecosystem: ColorEcosystem::new(now),
+            atmosphere: AtmosphericEvolution::new(now),
+            memory: RendererMemory::new(now),
+            storytelling: StorytellingState::new(now),
         }
     }
 
@@ -535,6 +1039,24 @@ impl Cloud {
     #[must_use]
     pub fn color_scheme(&self) -> ColorScheme {
         self.color_scheme
+    }
+
+    /// Get current behavior profile.
+    pub fn profile(&self) -> BehaviorProfile {
+        self.profile
+    }
+
+    /// Cycle to the next behavior profile with smooth transition.
+    pub fn cycle_profile(&mut self) {
+        let next = self.profile.cycle();
+        self.profile = next;
+        self.profile_target = next.params();
+        self.profile_transition_start = Some(Instant::now());
+    }
+
+    /// Get the name of the current behavior profile.
+    pub fn profile_name(&self) -> &'static str {
+        self.profile.name()
     }
 
     /// Return the total number of droplet slots (alive + dead).
@@ -701,6 +1223,14 @@ impl Cloud {
         self.force_draw_everything = true;
         self.last_reseed_time = now;
         self.last_phosphor_time = now;
+
+        // Phase 3: Reset cinematic subsystems on terminal resize
+        self.color_ecosystem = ColorEcosystem::new(now);
+        self.atmosphere = AtmosphericEvolution::new(now);
+        self.memory = RendererMemory::new(now);
+        self.storytelling = StorytellingState::new(now);
+        self.profile_transition_start = None;
+        // Note: profile and profile params are preserved across resets
     }
 
     pub fn init_chars(&mut self, chars: Vec<char>) {
@@ -1492,6 +2022,74 @@ impl Cloud {
         }
     }
 
+    /// Apply Phase 3 global atmospheric effects to the frame.
+    fn apply_atmospheric_frame_effects(&self, frame: &mut Frame, now: Instant) {
+        let luminance = self.color_ecosystem.luminance_climate;
+        let saturation = self.color_ecosystem.saturation_climate;
+        let instability = self.memory.instability_pressure;
+        let persistence = self.memory.persistence_richness;
+        let emergent = self.storytelling.active_effects(now);
+        let profile = self.profile_current;
+
+        // Skip if all modifiers are neutral
+        let needs_luminance = (luminance - 1.0).abs() > 0.01 || emergent.luminance_boost > 0.0 || profile.luminance_offset.abs() > 0.01;
+        let needs_saturation = (saturation - 1.0).abs() > 0.01;
+        let needs_persistence = persistence.abs() > 0.01;
+
+        if !needs_luminance && !needs_saturation && !needs_persistence {
+            return;
+        }
+
+        // Apply to all cells with foreground color
+        let bg = self.palette.bg;
+        for line in 0..self.lines {
+            for col in 0..self.cols {
+                let fidx = line as usize * frame.width as usize + col as usize;
+                let cell = frame.cell_at_index(fidx);
+                if let Some(fg) = cell.fg {
+                    let mut modified = fg;
+
+                    // Luminance climate
+                    if needs_luminance {
+                        let total_lum = luminance + profile.luminance_offset + emergent.luminance_boost;
+                        if total_lum < 1.0 {
+                            modified = crate::palette::apply_brightness(modified, total_lum.clamp(0.0, 1.0));
+                        } else if total_lum > 1.0 {
+                            let boost = (total_lum - 1.0).clamp(0.0, 0.3);
+                            modified = crate::palette::blend_toward_white(modified, boost);
+                        }
+                    }
+
+                    // Saturation climate (desaturate by blending toward luminance-matched gray)
+                    if needs_saturation && saturation < 1.0 {
+                        modified = crate::palette::apply_saturation(modified, saturation);
+                    }
+
+                    // Persistence richness: boost phosphor-like brightness
+                    if needs_persistence && persistence > 0.0 {
+                        modified = crate::palette::blend_toward_white(modified, persistence * 0.3);
+                    }
+
+                    // Instability pressure: subtle brightness jitter (very rare, very subtle)
+                    if instability > 0.15 {
+                        // Deterministic jitter based on position and time
+                        let hash = (col as u32).wrapping_mul(2654435761) ^ (line as u32).wrapping_mul(2246822519) ^ (now.elapsed().as_secs() as u32);
+                        if hash % 1000 < (instability * 50.0) as u32 {
+                            modified = crate::palette::blend_toward_white(modified, instability * 0.1);
+                        }
+                    }
+
+                    frame.set(col, line, crate::cell::Cell {
+                        ch: cell.ch,
+                        fg: Some(modified),
+                        bg,
+                        bold: cell.bold,
+                    });
+                }
+            }
+        }
+    }
+
     pub fn rain(&mut self, frame: &mut Frame) {
         self.rain_at(frame, Instant::now());
     }
@@ -1525,8 +2123,15 @@ impl Cloud {
         // Periodically re-seed RNG for very long sessions
         self.maybe_reseed_rng(now);
 
-        let spawn_scale = (1.0 - (PERF_PRESSURE_SPAWN_FACTOR * self.perf_pressure))
+        let mut spawn_scale = (1.0 - (PERF_PRESSURE_SPAWN_FACTOR * self.perf_pressure))
             .clamp(PERF_SPAWN_SCALE_MIN, 1.0);
+        // Apply atmospheric density modulation
+        spawn_scale *= 1.0 + self.atmosphere.density_offset;
+        // Apply profile density modulation
+        spawn_scale *= self.profile_current.density_mult;
+        // Apply emergent density boost
+        spawn_scale += self.storytelling.active_effects(now).density_boost;
+        spawn_scale = spawn_scale.clamp(0.05, 3.0);
         self.spawn_droplets(now, spawn_scale);
 
         if self.force_draw_everything {
@@ -1626,6 +2231,12 @@ impl Cloud {
             flash_col: self.flash_col,
             flash_line: self.flash_line,
             flash_time: self.flash_time,
+            luminance_climate: self.color_ecosystem.luminance_climate,
+            saturation_climate: self.color_ecosystem.saturation_climate,
+            instability_pressure: self.memory.instability_pressure,
+            persistence_richness: self.memory.persistence_richness,
+            emergent_effects: self.storytelling.active_effects(now),
+            profile_params: self.profile_current,
         };
 
         for d in &mut self.droplets {
@@ -1655,9 +2266,13 @@ impl Cloud {
 
         // --- Rare anomaly events ---
         // Check for new anomaly spawn
+        let anomaly_chance = ANOMALY_CHANCE_PER_SEC
+            * self.profile_current.anomaly_freq_mult as f64
+            * (1.0 + self.atmosphere.anomaly_offset as f64)
+            * (1.0 + self.memory.instability_pressure as f64);
         if phosphor_elapsed > 0.0
             && (self.rand_chance.sample(&mut self.mt) as f64)
-                <= ANOMALY_CHANCE_PER_SEC * phosphor_elapsed as f64
+                <= anomaly_chance * phosphor_elapsed as f64
         {
             self.spawn_anomaly(now);
         }
@@ -1666,6 +2281,54 @@ impl Cloud {
             .retain(|z| now.saturating_duration_since(z.start_time).as_secs_f32() < ANOMALY_DURATION_SECS);
         // Apply anomaly effects to frame
         self.apply_anomalies(frame, now);
+
+        // --- Phase 3: Autonomous cinematic ecosystem tick ---
+        // 1. Color ecosystem drift
+        if let Some(new_scheme) = self.color_ecosystem.tick(now, &mut self.mt, self.color_scheme) {
+            self.set_color_scheme(new_scheme);
+        }
+
+        // 2. Atmospheric evolution
+        self.atmosphere.tick(now, self.profile_current.entropy_rate);
+
+        // 3. Renderer memory sampling
+        let anomaly_density = self.anomaly_zones.len() as f32 / ANOMALY_MAX_ZONES.max(1) as f32;
+        let rain_density = self.droplet_density;
+        self.memory.record_sample(now, anomaly_density, rain_density, self.color_ecosystem.luminance_climate);
+        self.memory.recompute_derived();
+
+        // 4. Emergent storytelling
+        if let Some(kind) = self.storytelling.tick(now, &mut self.mt, &self.atmosphere, &self.memory, &self.color_ecosystem) {
+            self.storytelling.moments.push(EmergentMoment {
+                kind,
+                start_time: now,
+                duration: EMERGENT_MOMENT_DURATION_SECS,
+            });
+            self.storytelling.cooldown_until = Some(now + Duration::from_secs_f32(EMERGENT_MOMENT_DURATION_SECS + 60.0));
+        }
+        self.storytelling.expire_moments(now);
+
+        // 5. Profile interpolation (smooth transition)
+        if let Some(transition_start) = self.profile_transition_start {
+            let elapsed = transition_start.elapsed().as_secs_f32();
+            let t = (elapsed / PROFILE_TRANSITION_SECS).min(1.0);
+            // Smooth step interpolation
+            let t = t * t * (3.0 - 2.0 * t);
+            self.profile_current = lerp_profile_params(self.profile_current, self.profile_target, PROFILE_INTERPOLATION_RATE.max(t));
+            if t >= 1.0 {
+                self.profile_current = self.profile_target;
+                self.profile_transition_start = None;
+            }
+        }
+
+        // 6. Apply atmospheric evolution offsets to rendering parameters
+        // Density modulation from atmosphere + memory
+        let _atmo_density_mod = 1.0 + self.atmosphere.density_offset - self.memory.brightness_cooling;
+        // Luminance modulation from ecosystem + atmosphere + memory + emergent
+        let _emergent_effects = self.storytelling.active_effects(now);
+
+        // 7. Apply Phase 3 global atmospheric frame effects (post-process)
+        self.apply_atmospheric_frame_effects(frame, now);
 
         if time_for_glitch || glitch_due {
             self.last_glitch_time = now;

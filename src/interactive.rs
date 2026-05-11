@@ -515,6 +515,9 @@ fn handle_keybinding(
         (KeyCode::Char('p'), _) => {
             cloud.toggle_pause();
         }
+        (KeyCode::Char('m'), _) => {
+            cloud.cycle_profile();
+        }
         (KeyCode::Up, _) => {
             let mut cps = cloud.chars_per_sec;
             if cps <= 0.5 {

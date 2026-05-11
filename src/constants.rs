@@ -322,3 +322,117 @@ pub const ANOMALY_LUMINANCE_INTENSITY: f32 = 0.3;
 
 /// Anomaly corruption probability per cell in zone.
 pub const ANOMALY_CORRUPTION_CHANCE: f32 = 0.4;
+
+// ---------------------------------------------------------------------------
+// Phase 3: Temporal color ecosystems
+// ---------------------------------------------------------------------------
+
+/// How often the color ecosystem evaluates a drift (in seconds).
+/// Low-frequency — only checks every few seconds to avoid per-frame cost.
+pub const COLOR_ECOSYSTEM_TICK_SECS: f32 = 3.0;
+
+/// Maximum luminance climate shift per tick (0.0-1.0).
+/// Very slow drift so changes are barely perceptible per tick.
+pub const COLOR_CLIMATE_DRIFT_RATE: f32 = 0.008;
+
+/// Maximum saturation climate shift per tick (0.0-1.0).
+pub const COLOR_SATURATION_DRIFT_RATE: f32 = 0.005;
+
+/// Maximum hue rotation per tick (in radians, very small).
+pub const COLOR_HUE_DRIFT_RATE: f32 = 0.015;
+
+/// Probability per ecosystem tick that a drift direction changes.
+pub const COLOR_DRIFT_REEVAL_CHANCE: f32 = 0.15;
+
+/// Luminance climate bounds (min/max global brightness modifier).
+pub const COLOR_LUMINANCE_CLIMATE_MIN: f32 = 0.6;
+pub const COLOR_LUMINANCE_CLIMATE_MAX: f32 = 1.0;
+
+/// Saturation climate bounds (min/max global saturation modifier).
+pub const COLOR_SATURATION_CLIMATE_MIN: f32 = 0.5;
+pub const COLOR_SATURATION_CLIMATE_MAX: f32 = 1.0;
+
+/// Duration over which autonomous palette transitions occur (seconds).
+/// Very long to feel like atmospheric evolution, not theme switching.
+pub const AUTONOMOUS_PALETTE_TRANSITION_SECS: f32 = 120.0;
+
+/// Probability per ecosystem tick that an autonomous palette drift occurs.
+/// At 3s ticks, 0.03 ≈ one drift attempt every ~100 seconds.
+pub const AUTONOMOUS_PALETTE_DRIFT_CHANCE: f32 = 0.03;
+
+// ---------------------------------------------------------------------------
+// Phase 3: Cinematic runtime behavior profiles
+// ---------------------------------------------------------------------------
+
+/// Number of cinematic behavior profiles.
+pub const NUM_BEHAVIOR_PROFILES: usize = 7;
+
+/// Duration for a profile transition (seconds).
+pub const PROFILE_TRANSITION_SECS: f32 = 30.0;
+
+/// How often the profile state interpolates toward target (in seconds).
+pub const PROFILE_INTERPOLATION_RATE: f32 = 0.02;
+
+// ---------------------------------------------------------------------------
+// Phase 3: Autonomous atmospheric evolution
+// ---------------------------------------------------------------------------
+
+/// How often the atmospheric evolution system ticks (in seconds).
+pub const ATMOSPHERE_TICK_SECS: f32 = 5.0;
+
+/// Duration of a full entropy cycle (calm → energetic → calm) in seconds.
+pub const ENTROPY_CYCLE_SECS: f32 = 300.0;
+
+/// Maximum density migration multiplier from atmospheric evolution.
+pub const ATMOSPHERE_DENSITY_RANGE: f32 = 0.4;
+
+/// Maximum luminance climate shift from atmospheric evolution.
+pub const ATMOSPHERE_LUMINANCE_RANGE: f32 = 0.2;
+
+/// Maximum anomaly pressure shift from atmospheric evolution.
+pub const ATMOSPHERE_ANOMALY_RANGE: f32 = 0.5;
+
+// ---------------------------------------------------------------------------
+// Phase 3: Long-timescale renderer memory
+// ---------------------------------------------------------------------------
+
+/// Number of atmospheric history samples retained.
+pub const MEMORY_HISTORY_SAMPLES: usize = 32;
+
+/// How often a memory sample is recorded (in seconds).
+pub const MEMORY_SAMPLE_INTERVAL_SECS: f32 = 30.0;
+
+/// How much historical anomaly density increases instability pressure.
+pub const MEMORY_ANOMALY_PRESSURE_WEIGHT: f32 = 0.3;
+
+/// How much historical calm increases persistence richness.
+pub const MEMORY_CALM_PERSISTENCE_BOOST: f32 = 0.15;
+
+/// How much historical density cools brightness.
+pub const MEMORY_DENSITY_BRIGHTNESS_COOL: f32 = 0.1;
+
+// ---------------------------------------------------------------------------
+// Phase 3: Emergent visual storytelling
+// ---------------------------------------------------------------------------
+
+/// How often the storytelling system evaluates emergence (in seconds).
+pub const STORYTELLING_TICK_SECS: f32 = 10.0;
+
+/// Probability per storytelling tick that an emergent moment triggers,
+/// given all convergence conditions are met. Very rare by design.
+pub const EMERGENT_MOMENT_CHANCE: f32 = 0.08;
+
+/// Duration of an emergent atmospheric moment (seconds).
+pub const EMERGENT_MOMENT_DURATION_SECS: f32 = 8.0;
+
+/// Maximum number of concurrent emergent moments.
+pub const EMERGENT_MAX_MOMENTS: usize = 1;
+
+/// Intensity of emergent luminance surge (subtle, not flashy).
+pub const EMERGENT_LUMINANCE_INTENSITY: f32 = 0.12;
+
+/// Intensity of emergent density pulse (subtle spawning surge).
+pub const EMERGENT_DENSITY_INTENSITY: f32 = 0.25;
+
+/// Intensity of emergent speed shift (slow-motion or acceleration).
+pub const EMERGENT_SPEED_SHIFT: f32 = 0.15;

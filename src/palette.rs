@@ -221,6 +221,22 @@ pub fn apply_brightness(color: Color, factor: f32) -> Color {
     }
 }
 
+/// Reduce saturation of a color by the given factor (1.0 = no change, 0.0 = grayscale).
+#[must_use]
+pub fn apply_saturation(color: Color, factor: f32) -> Color {
+    if factor >= 1.0 || matches!(color, Color::Reset) {
+        return color;
+    }
+    let f = factor.clamp(0.0, 1.0);
+    let (r, g, b) = color_to_rgb(color);
+    let gray = ((r as u16 + g as u16 + b as u16) / 3) as u8;
+    Color::Rgb {
+        r: lerp_u8(gray, r, f),
+        g: lerp_u8(gray, g, f),
+        b: lerp_u8(gray, b, f),
+    }
+}
+
 /// Blend two colors together by factor t (0.0 = a, 1.0 = b).
 /// Works with all color types via RGB conversion.
 #[allow(dead_code)]
