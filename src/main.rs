@@ -69,8 +69,7 @@ use clap::{CommandFactory, FromArgMatches};
 use crate::charset::{build_chars, charset_from_str, parse_user_hex_chars};
 use crate::cloud::Cloud;
 use crate::config::{
-    color_enabled_stdout, default_params_usage_for_help, print_help_detail, print_list_charsets,
-    print_list_colors, Args, ColorBg,
+    color_enabled_stdout, print_help_detail, print_list_charsets, print_list_colors, Args, ColorBg,
 };
 use crate::constants::*;
 use crate::runtime::{BoldMode, ColorMode, ColorScheme, ShadingMode};
@@ -82,14 +81,16 @@ use crate::validation::{
 // --- Named constants are centralized in constants.rs ---
 
 const HELP_TEMPLATE_PLAIN: &str = "\
-{before-help}{about-with-newline}
+{name} {version}
+{about-with-newline}\
 USAGE:
   {usage}
 
 {all-args}{after-help}";
 
 const HELP_TEMPLATE_COLOR: &str = "\
-{before-help}{about-with-newline}
+{name} {version}
+{about-with-newline}\
 \x1b[1;36mUSAGE:\x1b[0m
   {usage}
 
@@ -798,7 +799,6 @@ fn main() -> std::io::Result<()> {
     {
         cmd = cmd.styles(clap_styles());
     }
-    cmd = cmd.before_help(default_params_usage_for_help());
     let help_template = if color_enabled_stdout() {
         HELP_TEMPLATE_COLOR
     } else {
@@ -824,6 +824,21 @@ fn main() -> std::io::Result<()> {
 
     // Apply config file defaults for args not explicitly set by user
     apply_config_defaults(&matches, &mut args);
+
+    // Apply --low-power overrides for args still at their default values.
+    // Explicit CLI flags always take precedence; config file values are also
+    // overridden since --low-power is an intentional one-shot mode request.
+    if args.low_power {
+        if matches.value_source("fps") == Some(ValueSource::DefaultValue) {
+            args.fps = 30.0;
+        }
+        if matches.value_source("speed") == Some(ValueSource::DefaultValue) {
+            args.speed = 5.0;
+        }
+        if matches.value_source("density") == Some(ValueSource::DefaultValue) {
+            args.density = 0.5;
+        }
+    }
 
     if args.list_charsets {
         print_list_charsets();
