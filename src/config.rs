@@ -3,10 +3,11 @@
 //! CLI argument definitions and help output generators.
 //!
 //! Cosmostrix follows a **curated simplicity** philosophy:
-//! - `--help` shows only the most common, user-facing options
-//! - `--help-detail` provides the full engineering reference
-//! - Advanced tuning knobs (glitch, shading, linger, etc.) are hidden from
-//!   the first impression but remain fully functional for power users.
+//! - `--help` shows a minimal, premium first impression
+//! - `--help-detail` is an advanced reference — curated, not dumped
+//! - `--glitch-level` provides a grouped interface over individual tuning knobs
+//! - Advanced parameters remain fully functional but are intentionally hidden
+//!   from the casual user.
 
 use std::io::IsTerminal;
 use std::str::FromStr;
@@ -79,6 +80,10 @@ fn colorize_help_detail(text: &str) -> String {
     out
 }
 
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
 #[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorBg {
     #[value(name = "black")]
@@ -88,6 +93,24 @@ pub enum ColorBg {
     #[value(name = "transparent")]
     Transparent,
 }
+
+/// Glitch intensity presets. Provides a grouped interface over individual
+/// glitch tuning parameters (glitchpct, glitchms, shortpct, rippct).
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GlitchLevel {
+    #[value(name = "none")]
+    None,
+    #[value(name = "subtle")]
+    Subtle,
+    #[value(name = "default")]
+    Default,
+    #[value(name = "intense")]
+    Intense,
+}
+
+// ---------------------------------------------------------------------------
+// U16Range
+// ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug)]
 pub struct U16Range {
@@ -121,7 +144,7 @@ impl FromStr for U16Range {
 // Args — curated two-tier help design
 //
 // VISIBLE args appear in --help (the first impression).
-// HIDDEN args are still fully functional but only documented in --help-detail.
+// HIDDEN args are still fully functional but intentionally undocumented.
 // ---------------------------------------------------------------------------
 
 #[derive(Parser, Debug, Clone)]
@@ -208,6 +231,16 @@ pub struct Args {
     )]
     pub low_power: bool,
 
+    #[arg(
+        long = "glitch-level",
+        default_value = "default",
+        value_enum,
+        help_heading = "COMMON OPTIONS",
+        display_order = 90,
+        help = "Glitch intensity"
+    )]
+    pub glitch_level: GlitchLevel,
+
     // === DIAGNOSTICS (visible in --help) ===
     #[arg(
         long = "doctor",
@@ -269,7 +302,7 @@ pub struct Args {
     )]
     pub version: bool,
 
-    // === HIDDEN (advanced — documented in --help-detail) ===
+    // === HIDDEN (functional but intentionally undocumented) ===
     #[arg(
         short = 'a',
         long = "async",
@@ -361,7 +394,7 @@ pub struct Args {
         long = "shadingmode",
         default_value_t = 1,
         hide = true,
-        help = "Shading: 0=random, 1=distance-from-head (min 0 max 1)"
+        help = "Shading: 0=random, 1=cinematic (min 0 max 1)"
     )]
     pub shading_mode: u8,
 
@@ -376,7 +409,7 @@ pub struct Args {
         long = "maxdpc",
         default_value_t = 3,
         hide = true,
-        help = "Max droplets per column (min 1 max 3)"
+        help = "Stream layering (min 1 max 3)"
     )]
     pub max_droplets_per_column: u8,
 
@@ -396,7 +429,7 @@ pub struct Args {
         long = "rippct",
         default_value_t = 33.33333,
         hide = true,
-        help = "Die-early chance in percent (min 0 max 100)"
+        help = "Stream decay chance in percent (min 0 max 100)"
     )]
     pub rippct: f32,
 
@@ -404,7 +437,7 @@ pub struct Args {
         long = "shortpct",
         default_value_t = 50.0,
         hide = true,
-        help = "Chance for short droplets in percent (min 0 max 100)"
+        help = "Fragmented stream chance in percent (min 0 max 100)"
     )]
     pub shortpct: f32,
 
@@ -427,339 +460,163 @@ pub struct Args {
 }
 
 // ---------------------------------------------------------------------------
-// List printers
+// List printers — clean, no alias noise
 // ---------------------------------------------------------------------------
 
 pub fn print_list_charsets() {
     if color_enabled_stdout() {
         println!("\x1b[1;36mAVAILABLE CHARSET PRESETS:\x1b[0m");
-        println!("\x1b[2mNOTE: Use only the VALUE (left side) with --charset.\x1b[0m");
     } else {
         println!("AVAILABLE CHARSET PRESETS:");
-        println!("NOTE: Use only the VALUE (left side) with --charset.");
     }
     println!();
-    println!("VALUE        DESCRIPTION");
-    println!("auto         Auto-select (ASCII_SAFE when non-UTF, otherwise matrix)");
-    println!("matrix       Letters + digits + katakana (no punctuation)");
-    println!("ascii        Letters + digits + punctuation");
-    println!("extended     Digits + punctuation + katakana");
-    println!("english      Letters only");
-    println!("digits       Digits only (aliases: dec, decimal)");
-    println!("punc         Punctuation only");
-    println!("binary       0 and 1 (aliases: bin, 01)");
-    println!("hex          0-9 and A-F (alias: hexadecimal)");
-    println!("katakana     Katakana");
-    println!("greek        Greek");
-    println!("cyrillic     Cyrillic");
-    println!("hebrew       Hebrew");
-    println!("blocks       Block elements (shading blocks)");
-    println!("symbols      Math/technical symbols");
-    println!("arrows       Arrow symbols");
-    println!("retro        Box-drawing characters");
-    println!("cyberpunk    Katakana + hex + symbols (combo)");
-    println!("hacker       Letters + hex + punc + symbols (combo)");
-    println!("minimal      Dots and simple shapes");
-    println!("code         Letters + digits + punc + symbols (combo)");
-    println!("dna          DNA bases (ACGT)");
-    println!("braille      Braille");
-    println!("runic        Runic");
+    println!("  auto         Auto-select (ASCII_SAFE when non-UTF, otherwise matrix)");
+    println!("  matrix       Letters + digits + katakana");
+    println!("  ascii        Letters + digits + punctuation");
+    println!("  extended     Digits + punctuation + katakana");
+    println!("  english      Letters only");
+    println!("  digits       Digits only");
+    println!("  punc         Punctuation only");
+    println!("  binary       0 and 1");
+    println!("  hex          0-9 and A-F");
+    println!("  katakana     Katakana");
+    println!("  greek        Greek");
+    println!("  cyrillic     Cyrillic");
+    println!("  hebrew       Hebrew");
+    println!("  blocks       Block elements");
+    println!("  symbols      Math / technical symbols");
+    println!("  arrows       Arrow symbols");
+    println!("  retro        Box-drawing characters");
+    println!("  cyberpunk    Katakana + hex + symbols");
+    println!("  hacker       Letters + hex + punctuation + symbols");
+    println!("  minimal      Dots and simple shapes");
+    println!("  code         Letters + digits + punctuation + symbols");
+    println!("  dna          DNA bases (ACGT)");
+    println!("  braille      Braille");
+    println!("  runic        Runic");
 }
 
 pub fn print_list_colors() {
     if color_enabled_stdout() {
         println!("\x1b[1;36mAVAILABLE COLOR THEMES:\x1b[0m");
-        println!("\x1b[2mNOTE: Use only the VALUE (left side) with --color.\x1b[0m");
     } else {
         println!("AVAILABLE COLOR THEMES:");
-        println!("NOTE: Use only the VALUE (left side) with --color.");
     }
     println!();
-    println!("VALUE        DESCRIPTION");
-    println!("green        Green theme");
-    println!("green2       Green variant");
-    println!("green3       Green variant");
-    println!("yellow       Yellow theme");
-    println!("orange       Orange theme");
-    println!("red          Red theme");
-    println!("blue         Blue theme");
-    println!("cyan         Cyan theme");
-    println!("gold         Gold theme");
-    println!("rainbow      Rainbow theme");
-    println!("purple       Purple theme");
-    println!("neon         Neon theme (alias: synthwave)");
-    println!("fire         Fire theme (alias: inferno)");
-    println!("ocean        Ocean theme (alias: deep-sea)");
-    println!("forest       Forest theme (alias: jungle)");
-    println!("vaporwave    Vaporwave theme");
-    println!("spectrum20   Spectrum 20-color theme (aliases: theme20, spectrum-20)");
-    println!("gray         Gray theme (alias: grey)");
-    println!("snow         Snow / ice theme");
-    println!("aurora       Aurora theme");
-    println!("fancy-diamond Fancy diamond theme");
-    println!("cosmos       Cosmos theme");
-    println!("nebula       Nebula theme");
-    println!("stars        Stars theme");
-    println!("mars         Mars theme");
-    println!("venus        Venus theme");
-    println!("mercury      Mercury theme");
-    println!("jupiter      Jupiter theme");
-    println!("saturn       Saturn theme");
-    println!("uranus       Uranus theme");
-    println!("neptune      Neptune theme");
-    println!("pluto        Pluto theme");
-    println!("moon         Moon theme");
-    println!("sun          Sun theme");
-    println!("comet        Comet theme");
-    println!("galaxy       Galaxy theme");
-    println!("supernova    Supernova theme");
-    println!("blackhole    Black hole theme");
-    println!("andromeda    Andromeda theme");
-    println!("stardust     Stardust theme");
-    println!("meteor       Meteor theme");
-    println!("eclipse      Eclipse theme");
-    println!("deepspace    Deep space theme");
+    println!("  green        green2       green3");
+    println!("  yellow       orange       red");
+    println!("  blue         cyan         gold");
+    println!("  rainbow      purple       neon");
+    println!("  fire         ocean        forest");
+    println!("  vaporwave    spectrum20   gray");
+    println!("  snow         aurora       fancy-diamond");
+    println!("  cosmos       nebula       stars");
+    println!("  mars         venus        mercury");
+    println!("  jupiter      saturn       uranus");
+    println!("  neptune      pluto        moon");
+    println!("  sun          comet        galaxy");
+    println!("  supernova    blackhole    andromeda");
+    println!("  stardust     meteor       eclipse");
+    println!("  deepspace");
 }
 
 // ---------------------------------------------------------------------------
-// --help-detail: full engineering reference
+// --help-detail: curated advanced reference
+//
+// Design principle: guide, don't dump. No embedded catalogs, no schema dumps,
+// no verbose alias disclosures. Discovery commands handle discovery.
 // ---------------------------------------------------------------------------
 
 pub fn print_help_detail() {
-    let common = "USAGE:
+    let text = "USAGE:
   cosmostrix [OPTIONS]
 
 COMMON OPTIONS:
   -c, --color <name>
-      Set theme (see --list-colors).
-      Example: cosmostrix --color rainbow
+      Color theme. See --list-colors for available themes.
+      cosmostrix --color rainbow
 
   --charset <name>
-      Charset preset (see --list-charsets).
-      Example: cosmostrix --charset binary
+      Character preset. See --list-charsets for available presets.
+      cosmostrix --charset binary
 
-  -f, --fps <number>
-      Target FPS (min 1 max 240) [default: 60].
-      Example: cosmostrix --fps 30
+  -f, --fps <1-240>
+      Target FPS.
+      cosmostrix --fps 30
 
-  -S, --speed <number>
-      Characters per second (rain speed) (min 0.001 max 1000) [default: 8].
-      Example: cosmostrix --speed 12
+  -S, --speed <0.001-1000>
+      Rain speed (characters per second).
+      cosmostrix --speed 12
 
-  -d, --density <number>
-      Droplet density (min 0.01 max 5.0) [default: 1.0].
-      Example: cosmostrix --density 1.25
+  -d, --density <0.01-5.0>
+      Rain density multiplier.
+      cosmostrix --density 1.25
 
   -s, --screensaver
-      Screensaver mode (exit on keypress).
-      Example: cosmostrix -s
+      Screensaver mode (exit on any keypress).
 
   -m, --message <text>
-      Overlay message.
-      Example: cosmostrix -m \"hello\"
+      Display overlay message.
+      cosmostrix -m \"hello\"
 
   --low-power
-      Power-saving mode. Overrides default values for FPS, speed, and density
-      when those flags are not explicitly set:
-        - FPS: 30 (if not explicitly set)
-        - Speed: 5 (if not explicitly set)
-        - Density: 0.5 (if not explicitly set)
-      Explicit CLI flags always take precedence over --low-power defaults.
-      Example: cosmostrix --low-power
-      Example: cosmostrix --low-power --fps 24
+      Power-saving mode. Applies FPS 30, speed 5, density 0.5
+      for parameters not explicitly provided.
 
-APPEARANCE (ADVANCED):
-  --colormode <0|8|24>
-      Force color mode; otherwise auto-detected from COLORTERM/TERM.
-      Example: cosmostrix --colormode 24
+  --glitch-level <none|subtle|default|intense>
+      Glitch intensity preset.
+
+APPEARANCE:
+  --colormode <0|16|256|24>
+      Force color depth. Auto-detected by default.
 
   -b, --bold <0|1|2>
-      Bold style (0 off, 1 random, 2 all) [default: 1].
-      Example: cosmostrix --bold 2
+      Bold style (off, random, all).
 
   -M, --shadingmode <0|1>
-      Shading (0 random, 1 distance-from-head) [default: 1].
-      Example: cosmostrix -M 1
+      Shading mode (random, cinematic).
 
   --color-bg <black|default-background|transparent>
-      Background mode.
-      Example: cosmostrix --color-bg transparent
+      Background rendering mode.
 
-GENERAL (ADVANCED):
+GENERAL:
   -a, --async
-      Async rendering (default: off).
-      To enable: --async or --async=true
-      Example: cosmostrix --async
+      Enable async rendering.
 
   -F, --fullwidth
       Use full terminal width.
-      Example: cosmostrix -F
 
   --duration <seconds>
-      Stop after N seconds (min 0.1 max 86400).
-      Example: cosmostrix --duration 10
-
-  --message-no-border, -mB
-      Draw filled box without border characters.
-
-PERFORMANCE (ADVANCED):
-  --maxdpc <number>
-      Max droplets per column (min 1 max 3) [default: 3].
-      Example: cosmostrix --maxdpc 2
+      Auto-stop after N seconds (0.1-86400).
 
   --perf-stats
-      Print performance statistics summary on exit.
-      Example: cosmostrix --duration 10 --perf-stats
-
-CHARSET (ADVANCED):
-  --chars <string>
-      Custom character override.
-      Example: cosmostrix --chars \"01\"
-
-GLITCH (ADVANCED):
-  --noglitch
-      Disable glitch effects (default: on).
-      To enable glitch: --noglitch=false
-      Example: cosmostrix --noglitch=false
-
-  -G, --glitchpct <number>
-      Glitch chance in percent (min 0 max 100) [default: 10].
-      Example: cosmostrix --glitchpct 5
-
-  -g, --glitchms <low,high>
-      Glitch duration range in ms (min 1 max 5000) [default: 300,400].
-      Example: cosmostrix --glitchms 200,500
-
-  -l, --lingerms <low,high>
-      Linger duration range in ms (min 1 max 60000) [default: 1,3000].
-      Example: cosmostrix --lingerms 1,3000
-
-  --shortpct <number>
-      Short droplet chance in percent (min 0 max 100) [default: 50].
-      Example: cosmostrix --shortpct 40
-
-  -r, --rippct <number>
-      Die-early chance in percent (min 0 max 100) [default: 33.33333].
-      Example: cosmostrix --rippct 20
+      Print performance summary on exit.
 
 DIAGNOSTICS:
-  --doctor
-      Print compatibility report and exit.
-      Example: cosmostrix --doctor
+  --doctor       System compatibility report.
+  --benchmark    Renderer benchmark (5 seconds).
+  -i, --info     Build and runtime information.
 
-  --benchmark
-      Run renderer benchmark (5 seconds) and print results.
-      Example: cosmostrix --benchmark
+DISCOVERY:
+  --list-colors    Show available color themes.
+  --list-charsets  Show available charset presets.
 
-  --check-bitcolor
-      Print detected terminal color capability and exit.
-      Example: cosmostrix --check-bitcolor
-
-  --bench-frames <frames>
-      Run headless benchmark for N frames and exit.
-      Example: cosmostrix --fps 60 --bench-frames 200000
+RUNTIME CONTROLS:
+  q / Esc       Quit              p          Pause / resume
+  c / C         Cycle theme       s / S      Cycle charset
+  [ / ]         Density           Up / Down  Speed
+  g             Toggle glitch     m          Cycle profile
+  Tab           Toggle shading    Space      Reseed animation
 
 HELP:
-  --help
-      Show short help (curated common options only).
-
-  --help-detail
-      Show this detailed help (full engineering reference).
-
-  --list-charsets
-      List available charset presets and exit.
-
-  --list-colors
-      List available color themes and exit.
-
-  -v, --version
-      Print version and exit.
-
-  -i, --info
-      Print version info and exit.
+  --help          Show common options.
+  --help-detail   Show this full reference.
+  -v, --version    Print version.
 ";
 
     if color_enabled_stdout() {
-        print!("{}", colorize_help_detail(common));
+        print!("{}", colorize_help_detail(text));
     } else {
-        print!("{}", common);
+        print!("{}", text);
     }
-
-    let runtime_keys = "RUNTIME KEYS:
-  q / Esc
-      Quit
-  p
-      Pause/resume
-  Ctrl+Z
-      Suspend (resume with: fg)
-  Space
-      Reset/reseed animation
-  Up / Down
-      Increase/decrease speed
-  [ / -
-      Decrease density
-  ] / +
-      Increase density
-  c / C
-      Cycle color theme (next/previous)
-  s / S
-      Cycle charset preset (next/previous)
-  a
-      Toggle async rendering
-  g
-      Toggle glitch effects on/off
-  m
-      Cycle behavior profile (Monolith/Void/Neural/Decay/Eclipse/Static/Pulse)
-  Left / Right
-      Change glitch percent (when glitch is on)
-  Tab
-      Toggle shading mode
-";
-    if color_enabled_stdout() {
-        print!("{}", colorize_help_detail(runtime_keys));
-    } else {
-        print!("{}", runtime_keys);
-    }
-
-    let env = "ENVIRONMENT:
-  COSMOSTRIX_NO_FORK_GUARD
-      Linux only. Set to 1/true/on/yes to disable the fork-based SIGKILL (-9) terminal guard.
-      Values 0/false/off/no/empty keep the guard enabled.
-";
-    if color_enabled_stdout() {
-        print!("{}", colorize_help_detail(env));
-    } else {
-        print!("{}", env);
-    }
-
-    let tail = "VALUE LISTS:
-  cosmostrix --list-charsets
-  cosmostrix --list-colors
-
-LIMITS / VALID RANGES:
-";
-    if color_enabled_stdout() {
-        print!("{}", colorize_help_detail(tail));
-    } else {
-        print!("{}", tail);
-    }
-    println!("  --duration <seconds>     min 0.1 max 86400 (<=0 disables)");
-    println!("  --perf-stats             print performance summary on exit");
-    println!("  --bench-frames <frames>  min 1");
-    println!("  --fps <number>           min 1 max 240 [default: 60]");
-    println!("  --speed <number>         min 0.001 max 1000 [default: 8]");
-    println!("  --density <number>       min 0.01 max 5.0 [default: 1.0]");
-    println!("  --maxdpc <number>        min 1 max 3 [default: 3]");
-    println!("  --glitchpct <number>     min 0 max 100 [default: 10]");
-    println!("  --shortpct <number>      min 0 max 100 [default: 50]");
-    println!("  --rippct <number>        min 0 max 100 [default: 33.33333]");
-    println!("  --glitchms <low,high>    min 1 max 5000 (each) [default: 300,400]");
-    println!("  --lingerms <low,high>    min 1 max 60000 (each) [default: 1,3000]");
-    println!("  --bold <0|1|2>           min 0 max 2 [default: 1]");
-    println!("  --shadingmode <0|1>      min 0 max 1 [default: 1]");
-    println!("  --colormode <0|16|8|24>  allowed values only (8==256, 24==32)");
-    println!();
-    print_list_charsets();
-    println!();
-    print_list_colors();
 }

@@ -70,6 +70,7 @@ use crate::charset::{build_chars, charset_from_str, parse_user_hex_chars};
 use crate::cloud::Cloud;
 use crate::config::{
     color_enabled_stdout, print_help_detail, print_list_charsets, print_list_colors, Args, ColorBg,
+    GlitchLevel, U16Range,
 };
 use crate::constants::*;
 use crate::runtime::{BoldMode, ColorMode, ColorScheme, ShadingMode};
@@ -837,6 +838,78 @@ fn main() -> std::io::Result<()> {
         }
         if matches.value_source("density") == Some(ValueSource::DefaultValue) {
             args.density = 0.5;
+        }
+    }
+
+    // Apply --glitch-level preset. Each level sets glitch-related parameters
+    // to curated values. Individual hidden flags (--glitchpct, --glitchms, etc.)
+    // override the preset if explicitly provided by the user.
+    let is_explicit = |key: &str| matches.value_source(key) != Some(ValueSource::DefaultValue);
+    match args.glitch_level {
+        GlitchLevel::None => {
+            if !is_explicit("noglitch") {
+                args.noglitch = true;
+            }
+        }
+        GlitchLevel::Subtle => {
+            if !is_explicit("noglitch") {
+                args.noglitch = false;
+            }
+            if !is_explicit("glitchpct") {
+                args.glitch_pct = 3.0;
+            }
+            if !is_explicit("glitchms") {
+                args.glitch_ms = U16Range {
+                    low: 200,
+                    high: 300,
+                };
+            }
+            if !is_explicit("shortpct") {
+                args.shortpct = 60.0;
+            }
+            if !is_explicit("rippct") {
+                args.rippct = 45.0;
+            }
+        }
+        GlitchLevel::Default => {
+            if !is_explicit("noglitch") {
+                args.noglitch = false;
+            }
+            if !is_explicit("glitchpct") {
+                args.glitch_pct = 10.0;
+            }
+            if !is_explicit("glitchms") {
+                args.glitch_ms = U16Range {
+                    low: 300,
+                    high: 400,
+                };
+            }
+            if !is_explicit("shortpct") {
+                args.shortpct = 50.0;
+            }
+            if !is_explicit("rippct") {
+                args.rippct = 33.33333;
+            }
+        }
+        GlitchLevel::Intense => {
+            if !is_explicit("noglitch") {
+                args.noglitch = false;
+            }
+            if !is_explicit("glitchpct") {
+                args.glitch_pct = 25.0;
+            }
+            if !is_explicit("glitchms") {
+                args.glitch_ms = U16Range {
+                    low: 500,
+                    high: 800,
+                };
+            }
+            if !is_explicit("shortpct") {
+                args.shortpct = 30.0;
+            }
+            if !is_explicit("rippct") {
+                args.rippct = 20.0;
+            }
         }
     }
 
