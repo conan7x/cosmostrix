@@ -72,16 +72,22 @@ pub struct DrawCtx<'a> {
     pub flash_time: Option<Instant>,
 
     /// Global luminance climate modifier from color ecosystem.
+    #[allow(dead_code)]
     pub luminance_climate: f32,
     /// Global saturation climate modifier from color ecosystem.
+    #[allow(dead_code)]
     pub saturation_climate: f32,
     /// Instability pressure from renderer memory.
+    #[allow(dead_code)]
     pub instability_pressure: f32,
     /// Persistence richness from renderer memory.
+    #[allow(dead_code)]
     pub persistence_richness: f32,
     /// Emergent visual effects currently active.
+    #[allow(dead_code)]
     pub emergent_effects: EmergentEffects,
     /// Current profile params (interpolated).
+    #[allow(dead_code)]
     pub profile_params: ProfileParams,
 }
 
@@ -609,7 +615,7 @@ impl AtmosphericEvolution {
         self.cycle_speed = profile_entropy_rate;
 
         self.entropy_phase += (elapsed / ENTROPY_CYCLE_SECS) * self.cycle_speed;
-        self.entropy_phase = self.entropy_phase % 1.0;
+        self.entropy_phase %= 1.0;
 
         let tau = std::f32::consts::TAU;
         self.density_offset = (self.entropy_phase * tau).sin() * ATMOSPHERE_DENSITY_RANGE;
