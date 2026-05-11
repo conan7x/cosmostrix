@@ -1,5 +1,23 @@
 // Copyright (c) 2026 rezky_nightky
 
+//! Differential frame buffer with generation-based dirty tracking.
+//!
+//! The frame buffer is the central data structure between simulation and
+//! output. It stores a 2D grid of [`Cell`] values and tracks which cells
+//! have changed since the last draw call.
+//!
+//! ## Dirty Tracking Strategy
+//!
+//! Each cell carries a *generation counter* alongside its content. When a cell
+//! is written, its generation is updated to match the current frame generation.
+//! A separate [`BitVec`] provides O(1) dirty checks without scanning the full
+//! grid. Dirty indices are collected into a [`SmallVec`] with 64 inline slots,
+//! covering small terminals without heap allocation.
+//!
+//! The generation system allows cells to be "logically cleared" without
+//! physically overwriting them — [`clear_with_bg`] bumps the generation,
+//! making all previous cells appear blank without a full buffer zeroing.
+
 use smallvec::SmallVec;
 
 use crate::cell::Cell;

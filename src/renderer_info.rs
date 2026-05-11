@@ -9,6 +9,7 @@ use crate::runtime::ColorMode;
 
 /// Static renderer metadata describing the rendering pipeline.
 pub struct RendererInfo {
+    pub identity: &'static str,
     pub backend: &'static str,
     pub pacing: &'static str,
     pub unicode: &'static str,
@@ -22,6 +23,7 @@ pub struct RendererInfo {
 #[inline]
 pub fn renderer_info(color_mode: ColorMode) -> RendererInfo {
     RendererInfo {
+        identity: "high-performance cinematic terminal renderer",
         backend: "ansi-stream",
         pacing: "adaptive",
         unicode: "utf8-singlewidth",

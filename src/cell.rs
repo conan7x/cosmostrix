@@ -1,5 +1,15 @@
 // Copyright (c) 2026 rezky_nightky
 
+//! Terminal cell representation and luminance calculation.
+//!
+//! A `Cell` is the atomic unit of the frame buffer — a single terminal
+//! position containing a character, foreground/background colors, and a
+//! bold flag. Cells are copied by value (~24 bytes) throughout the renderer.
+//!
+//! The `luminance()` method provides a perceptual brightness value (0-255)
+//! using the ITU-R BT.601 luma formula, used by the differential rendering
+//! system to determine if a color change is visually significant.
+
 use crossterm::style::Color;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

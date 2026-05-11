@@ -1,5 +1,24 @@
 // Copyright (c) 2026 rezky_nightky
 
+//! Color pipeline for Cosmostrix.
+//!
+//! Handles palette construction, color quantization across modes (truecolor,
+//! 256-color, 16-color, mono), and runtime color blending operations.
+//!
+//! ## Palette Construction
+//!
+//! Palettes are built from hand-tuned ANSI 256-color indices or gradient
+//! stop points, then quantized to the active color mode at construction time.
+//! Each of the 40+ color schemes defines its own aesthetic character through
+//! careful gradient design.
+//!
+//! ## Blending Operations
+//!
+//! Real-time color effects (bloom, fog, glow, flash) are implemented as
+//! composable blending functions that convert to RGB, apply the effect, and
+//! convert back. The `color_to_rgb()` function handles all crossterm Color
+//! variants including named ANSI colors, 256-color indices, and truecolor RGB.
+
 use crossterm::style::Color;
 
 use crate::runtime::{ColorMode, ColorScheme};

@@ -1,9 +1,24 @@
 // Copyright (c) 2026 rezky_nightky
 
-//! Simple key=value config file support.
+//! Configuration file support for Cosmostrix.
 //!
 //! Reads `~/.config/cosmostrix/config` (or `$XDG_CONFIG_HOME/cosmostrix/config`).
-//! Format: one `key = value` per line, `#` comments, blank lines ignored.
+//!
+//! ## Philosophy
+//!
+//! The config file exposes only the most commonly tweaked parameters — the
+//! "daily driver" settings that users change between sessions. Advanced tuning
+//! (glitch timing, linger ranges, custom chars, benchmark options) remains
+//! CLI-only by design. This keeps the config file approachable and prevents
+//! the 200-option configuration mess common in mature terminal tools.
+//!
+//! ## Format
+//!
+//! ```text
+//! key = value          # one per line
+//! # comments           # blank lines ignored
+//! ```
+//!
 //! Config file values serve as defaults; CLI args always take precedence.
 
 use std::collections::HashMap;

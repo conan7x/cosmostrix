@@ -1,11 +1,29 @@
 // Copyright (c) 2026 rezky_nightky
 
-//! Headless benchmark runners for Cosmostrix.
+//! Benchmark subsystem for Cosmostrix.
 //!
-//! Two modes:
-//! - `--bench-frames N`: CI/regression benchmark, prints legacy `BENCH:` format.
-//! - `--benchmark`: Premium user-facing 5-second benchmark with live progress
-//!   and Report engine output.
+//! Provides two benchmark modes:
+//!
+//! - `--bench-frames N`: Legacy CI/regression benchmark. Runs N frames in a
+//!   headless loop and prints results in a parseable `BENCH:` format. Suitable
+//!   for automated performance tracking and CI pipelines.
+//!
+//! - `--benchmark`: Premium user-facing benchmark. Runs for 5 seconds with
+//!   a 2-second warmup phase, live progress feedback, and a comprehensive
+//!   Report-engine output including avg/peak FPS, frame time percentiles,
+//!   jitter classification, and throughput metrics.
+//!
+//! ## Methodology
+//!
+//! The premium benchmark is designed for reproducibility:
+//! - **Warmup phase** (2s, configurable via `COSMOSTRIX_BENCH_WARMUP_SECS`):
+//!   Allows the CPU to ramp up frequency and JIT/cache to stabilize.
+//! - **Outlier trimming**: p99 frame time is computed after trimming the top
+//!   and bottom 1% of samples, eliminating cold-path and OS scheduling noise.
+//! - **Rolling display**: The live UI shows a smoothed average of the last 16
+//!   frame times, avoiding flicker from per-frame variance.
+//! - **Interrupt support**: Ctrl+C gracefully stops the benchmark and reports
+//!   partial results with an "interrupted" status note.
 
 use std::env;
 use std::io::{self, IsTerminal, Write};

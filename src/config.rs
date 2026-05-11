@@ -139,7 +139,7 @@ pub struct Args {
         long = "bold",
         default_value_t = 1,
         help_heading = "APPEARANCE",
-        help = "Bold mode (min 0 max 2): 0=off, 1=random, 2=all"
+        help = "Bold style: 0=off, 1=random, 2=all (min 0 max 2)"
     )]
     pub bold: u8,
 
@@ -166,7 +166,7 @@ pub struct Args {
         long = "density",
         default_value_t = 1.0,
         help_heading = "PERFORMANCE",
-        help = "Droplet density (min 0.01 max 5.0)"
+        help = "Droplet density multiplier (min 0.01 max 5.0)"
     )]
     pub density: f32,
 
@@ -247,7 +247,7 @@ pub struct Args {
         long = "shadingmode",
         default_value_t = 1,
         help_heading = "APPEARANCE",
-        help = "Shading mode (min 0 max 1): 0=random, 1=distance-from-head (default)"
+        help = "Shading: 0=random, 1=distance-from-head (min 0 max 1)"
     )]
     pub shading_mode: u8,
 
@@ -299,7 +299,7 @@ pub struct Args {
         long = "speed",
         default_value_t = 8.0,
         help_heading = "PERFORMANCE",
-        help = "Characters per second (min 0.001 max 1000)"
+        help = "Rain speed in characters per second (min 0.001 max 1000)"
     )]
     pub speed: f32,
 
@@ -498,8 +498,8 @@ pub fn print_help_detail() {
         "  --check-bitcolor\n      Print detected terminal color capability and exit.\n      Example: cosmostrix --check-bitcolor\n\n  --doctor\n      Print compatibility report and exit.\n      Example: cosmostrix --doctor\n\n  -m, --message <text>\n",
     )
     .replace(
-        "HELP:\n  --check-bitcolor\n      Print detected terminal color capability and exit.\n\n  --help\n",
         "HELP:\n  --check-bitcolor\n      Print detected terminal color capability and exit.\n\n  --doctor\n      Print compatibility report and exit.\n\n  --help\n",
+        "HELP:\n  --doctor\n      Print compatibility report and exit.\n\n  --help\n",
     );
 
     if color_enabled_stdout() {
@@ -515,7 +515,7 @@ pub fn print_help_detail() {
         print!("{}", bench);
     }
 
-    let runtime_keys = "\nRUNTIME KEYS:\n  q / Esc\n      Quit\n  p\n      Pause/resume\n  Ctrl+Z\n      Suspend (resume with: fg)\n  Space\n      Reset/reseed animation\n  Up / Down\n      Increase/decrease speed\n  [ / -\n      Decrease density\n  ] / +\n      Increase density\n  c / C\n      Cycle color theme (next/previous)\n  s / S\n      Cycle charset preset (next/previous)\n  a\n      Toggle async rendering\n  g\n      Toggle glitch effects on/off\n  Left / Right\n      Change glitch percent (when glitch is on)\n  Tab\n      Toggle shading mode\n";
+    let runtime_keys = "\nRUNTIME KEYS:\n  q / Esc\n      Quit\n  p\n      Pause/resume\n  Ctrl+Z\n      Suspend (resume with: fg)\n  Space\n      Reset/reseed animation\n  Up / Down\n      Increase/decrease speed\n  [ / -\n      Decrease density\n  ] / +\n      Increase density\n  c / C\n      Cycle color theme (next/previous)\n  s / S\n      Cycle charset preset (next/previous)\n  a\n      Toggle async rendering\n  g\n      Toggle glitch effects on/off\n  m\n      Cycle behavior profile (Monolith/Void/Neural/Decay/Eclipse/Static/Pulse)\n  Left / Right\n      Change glitch percent (when glitch is on)\n  Tab\n      Toggle shading mode\n";
     if color_enabled_stdout() {
         print!("{}", colorize_help_detail(runtime_keys));
     } else {

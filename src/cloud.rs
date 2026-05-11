@@ -1,5 +1,35 @@
 // Copyright (c) 2026 rezky_nightky
 
+//! Core simulation engine for Cosmostrix.
+//!
+//! This module implements the entire atmospheric rendering pipeline:
+//! droplet spawning, advancement, palette management, phosphor persistence,
+//! anomaly events, and the autonomous cinematic ecosystem.
+//!
+//! ## Key Systems
+//!
+//! - **DrawCtx**: A read-only snapshot of renderer state passed to each
+//!   droplet's `draw()` method, avoiding borrow conflicts with the mutable
+//!   droplet iteration loop.
+//! - **Behavior Profiles**: Seven cinematic identities (Monolith, Void, Neural,
+//!   Decay, Eclipse, Static, Pulse) that define fundamentally different
+//!   atmospheric behaviors — not mere recolors.
+//! - **Color Ecosystem**: Slow autonomous drift of luminance, saturation, and
+//!   hue that makes the renderer feel organically alive over long sessions.
+//! - **Atmospheric Evolution**: Entropy cycles that modulate density, luminance
+//!   and anomaly pressure on minute-scale timescales.
+//! - **Renderer Memory**: Long-timescale history that influences emergent
+//!   behavior based on past atmospheric conditions.
+//! - **Storytelling State**: Watches for convergence across other systems and
+//!   occasionally produces emotionally resonant emergent moments.
+//!
+//! ## Palette Transition System
+//!
+//! When the color scheme changes, new droplets inherit the new palette while
+//! existing streams retain their birth palette for their entire lifecycle.
+//! Columns adopt the new palette at staggered intervals, creating an organic
+//! propagation wave instead of a robotic simultaneous switch.
+
 use std::time::{Duration, Instant};
 
 use crossterm::style::Color;

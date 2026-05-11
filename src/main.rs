@@ -1,5 +1,40 @@
 // Copyright (c) 2026 rezky_nightky
 
+//! Cosmostrix — A high-performance cinematic terminal renderer.
+//!
+//! Cosmostrix transforms your terminal into a living, breathing canvas of
+//! atmospheric digital rain. It is not a simple Matrix clone; it is a
+//! realtime rendering engine built on principles of cinematic motion,
+//! depth layering, and autonomous visual storytelling.
+//!
+//! ## Architecture
+//!
+//! The renderer is organized into clearly separated concerns:
+//! - **Cloud** (`cloud.rs`): The simulation engine — droplet lifecycle, spawning,
+//!   atmospheric evolution, and the cinematic behavior profile system.
+//! - **Frame** (`frame.rs`): The backing buffer — differential dirty tracking
+//!   with generation-based invalidation for zero-overhead cell reuse.
+//! - **Terminal** (`terminal.rs`): The output layer — ANSI escape sequencing
+//!   with run-length encoding, batched writes, and cursor optimization.
+//! - **Droplet** (`droplet.rs`): Individual stream physics — gravity acceleration,
+//!   velocity turbulence, head bloom, and phosphor afterglow.
+//! - **Palette** (`palette.rs`): The color pipeline — gradient construction,
+//!   mode-aware quantization, and real-time color blending.
+//!
+//! ## Motion Philosophy
+//!
+//! Cosmostrix prioritizes *perceptual smoothness* over raw frame count.
+//! The adaptive pacing system modulates simulation time under performance
+//! pressure, preferring slight visual slowdown over stutter. Frame timing
+//! uses single-reschedule logic to prevent cascading overshoot jitter.
+//!
+//! ## Optimization Philosophy
+//!
+//! Performance work follows a "measure, don't guess" discipline. The benchmark
+//! subsystem (`bench.rs`) provides reproducible metrics with warmup phases
+//! and outlier trimming. Optimizations target real bottlenecks identified
+//! through profiling, not hypothetical micro-optimizations.
+
 mod bench;
 mod cell;
 mod charset;
@@ -871,6 +906,7 @@ fn main() -> std::io::Result<()> {
             s.field("dirty_tracking", ri.dirty_tracking);
             s.field("io_strategy", ri.io_strategy);
             s.field("color_depth", ri.color_depth);
+            s.field("identity", ri.identity);
         }
         {
             let s = r.section("CAPACITY");

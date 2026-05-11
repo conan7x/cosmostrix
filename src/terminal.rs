@@ -1,5 +1,30 @@
 // Copyright (c) 2026 rezky_nightky
 
+//! Terminal abstraction layer for Cosmostrix.
+//!
+//! Provides raw mode, alternate screen management, mouse capture, and the
+//! core diff-based ANSI rendering pipeline.
+//!
+//! ## Output Strategy
+//!
+//! The terminal uses a 64 KiB buffered writer to batch an entire frame's
+//! ANSI commands into a single `write()` syscall. Within each frame, the
+//! renderer uses run-length encoding: consecutive cells sharing the same
+//! style (foreground, background, bold) are batched into a single string
+//! buffer, minimizing the number of `SetForegroundColor` / `SetBackgroundColor`
+//! commands.
+//!
+//! For differential (non-full) redraws, dirty cells are grouped by row,
+//! sorted, and scanned for contiguous runs of matching style. This produces
+//! minimal cursor movement and style-change overhead.
+//!
+//! ## Terminal Safety
+//!
+//! A RAII [`Terminal`] guard ensures the alternate screen, raw mode, and
+//! cursor visibility are always restored on drop — including panic unwinding.
+//! A fork-based SIGKILL guard (Linux) provides a last-resort safety net
+//! for cases where the process is killed with signal 9.
+
 use std::io::{stdout, BufWriter, Result, Stdout, Write};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;

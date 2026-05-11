@@ -1,5 +1,33 @@
 // Copyright (c) 2026 rezky_nightky
 
+//! Individual droplet (rain stream) simulation.
+//!
+//! Each droplet represents a single column of falling rain — a vertical
+//! stream of characters with a bright head, fading trail, and optional
+//! tail. Droplets are recycled via an object pool (`Vec<Droplet>` in Cloud)
+//! to avoid per-spawn allocations.
+//!
+//! ## Physics
+//!
+//! Droplets accelerate under gravity toward a terminal velocity (configurable
+//! via `--speed`). A sinusoidal turbulence overlay adds organic velocity
+//! variation so streams don't move at perfectly constant speed.
+//!
+//! ## Visual Effects Pipeline
+//!
+//! During `draw()`, each cell's foreground color passes through a stack of
+//! composable effects applied in order:
+//! 1. Transition energy glow (new-palette streams)
+//! 2. Head bloom (cells near the stream head)
+//! 3. Parallax layer brightness (far layers dimmer)
+//! 4. Atmospheric glyph dimming (far layer simplification)
+//! 5. Depth fog vignette (top/bottom edge dimming)
+//! 6. Cursor glow (mouse proximity brightness)
+//! 7. Click flash (expanding ring from click point)
+//!
+//! Each effect reads from `DrawCtx` and modifies the color via the palette
+//! blending functions in `palette.rs`.
+
 use std::time::{Duration, Instant};
 
 use crate::cloud::{CharLoc, DrawCtx};
