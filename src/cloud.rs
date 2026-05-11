@@ -875,6 +875,14 @@ pub struct Cloud {
     spawn_remainder: f32,
     pause_time: Option<Instant>,
 
+    /// Resume easing blend factor: 0.0 (just resumed) → 1.0 (fully active).
+    /// Scales spawn rate and droplet position deltas during the smooth
+    /// resume transition to prevent perceptual snap/jank on unpause.
+    resume_blend: f32,
+    /// Timestamp when the most recent unpause occurred. Used to compute
+    /// the exponential ease-in curve for `resume_blend`.
+    resume_start: Option<Instant>,
+
     force_draw_everything: bool,
 
     /// Frame counter for periodic full redraw (ANSI drift correction).
@@ -1036,6 +1044,8 @@ impl Cloud {
             last_spawn_time: now,
             spawn_remainder: 0.0,
             pause_time: None,
+            resume_blend: 1.0,
+            resume_start: None,
             force_draw_everything: false,
             frames_since_full_redraw: 0,
             perf_pressure: 0.0,
@@ -1245,7 +1255,8 @@ impl Cloud {
         if self.pause {
             self.pause_time = Some(Instant::now());
         } else if let Some(pt) = self.pause_time.take() {
-            let elapsed = Instant::now().saturating_duration_since(pt);
+            let now = Instant::now();
+            let elapsed = now.saturating_duration_since(pt);
             // Shift all active droplet timestamps so they resume seamlessly.
             self.last_spawn_time += elapsed;
             for d in &mut self.droplets {
@@ -1266,6 +1277,10 @@ impl Cloud {
             if let Some(ref mut cd) = self.storytelling.cooldown_until {
                 *cd += elapsed;
             }
+            // Initialize cinematic resume easing: animation ramps from 0→full
+            // over ~200ms to prevent perceptual snap/jank on unpause.
+            self.resume_blend = 0.0;
+            self.resume_start = Some(now);
         }
     }
 
@@ -1376,6 +1391,18 @@ impl Cloud {
             let idx = dist.sample(&mut self.mt);
             self.glitch_pool[i] = self.chars[idx];
         }
+
+        // Invalidate phosphor state to prevent stale ghost cells from the old
+        // charset leaking through after a charset switch. Without this, the
+        // phosphor decay pass could render dimmed cells using the old charset's
+        // base_fg colors at positions where droplets previously rendered.
+        let total = (self.cols as usize) * (self.lines as usize);
+        self.phosphor.clear();
+        self.phosphor.resize(total, 0);
+        self.phosphor_base_fg.clear();
+        self.phosphor_base_fg.resize(total, None);
+        self.phosphor_layer.clear();
+        self.phosphor_layer.resize(total, 0);
     }
 
     fn recalc_droplets_per_sec(&mut self) {
@@ -2254,6 +2281,19 @@ impl Cloud {
         // Periodically re-seed RNG for very long sessions
         self.maybe_reseed_rng(now);
 
+        // Advance cinematic resume easing: exponential ease from 0→1 over
+        // ~200ms after unpause. This prevents perceptual snap/jank when
+        // transitioning from frozen to full-speed animation.
+        if let Some(rs) = self.resume_start {
+            let t = rs.elapsed().as_secs_f32();
+            // Exponential ease: 1 - e^(-t/tau). At 3*tau (~240ms), blend ≈ 0.95.
+            self.resume_blend = (1.0 - (-t / RESUME_EASE_TAU_SECS).exp()).min(1.0);
+            if self.resume_blend >= 0.99 {
+                self.resume_blend = 1.0;
+                self.resume_start = None; // Transition complete — stop tracking
+            }
+        }
+
         let mut spawn_scale = (1.0 - (PERF_PRESSURE_SPAWN_FACTOR * self.perf_pressure))
             .clamp(PERF_SPAWN_SCALE_MIN, 1.0);
         // Apply atmospheric density modulation
@@ -2262,7 +2302,9 @@ impl Cloud {
         spawn_scale *= self.profile_current.density_mult;
         // Apply emergent density boost
         spawn_scale += self.storytelling.active_effects(now).density_boost;
-        spawn_scale = spawn_scale.clamp(0.05, 3.0);
+        // Apply resume easing: scale spawn rate during smooth resume transition
+        spawn_scale *= self.resume_blend;
+        spawn_scale = spawn_scale.clamp(0.0, 3.0);
         self.spawn_droplets(now, spawn_scale);
 
         if self.force_draw_everything {
@@ -2298,7 +2340,7 @@ impl Cloud {
                 } else {
                     now
                 };
-                let free_col = d.advance(adv_now, self.lines);
+                let free_col = d.advance(adv_now, self.lines, self.resume_blend);
                 let col = d.bound_col;
                 let start_line = d.tail_put_line.map(|v| v + 1).unwrap_or(0);
                 let hp = d.head_put_line;
@@ -2550,6 +2592,10 @@ mod tests {
         assert!(!frame.is_dirty_all() && frame.dirty_indices().is_empty());
 
         cloud.toggle_pause();
+        // Advance resume_start far enough in the past so the exponential
+        // easing completes (resume_blend reaches 1.0, allowing full-speed
+        // simulation on the next rain() call).
+        cloud.resume_start = Some(Instant::now() - Duration::from_secs(1));
         cloud.last_spawn_time = Instant::now() - Duration::from_secs(1);
         cloud.rain(&mut frame);
         assert!(frame.is_dirty_all() || !frame.dirty_indices().is_empty());

@@ -187,6 +187,16 @@ impl Terminal {
         let do_full_redraw = !can_reuse_last || frame.is_dirty_all() || dirty_is_large;
 
         if do_full_redraw {
+            // Always clear the terminal before a full redraw. This prevents
+            // stale glyphs from persisting when the render semantics change
+            // (charset switch, theme change, shading mode toggle) but the
+            // terminal dimensions remain the same. Without this, the
+            // differential renderer's LastFrame could mask cells that the
+            // terminal emulator still displays with old content.
+            if !needs_full_redraw {
+                self.stdout
+                    .queue(terminal::Clear(terminal::ClearType::All))?;
+            }
             let needs_new_last = self
                 .last
                 .as_ref()

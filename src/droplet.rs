@@ -144,7 +144,7 @@ impl Droplet {
     }
 
     #[inline]
-    pub fn advance(&mut self, now: Instant, lines: u16) -> bool {
+    pub fn advance(&mut self, now: Instant, lines: u16, motion_scale: f32) -> bool {
         let Some(last) = self.last_time else {
             self.last_time = Some(now);
             return false;
@@ -179,7 +179,12 @@ impl Droplet {
                 * self.chars_per_sec;
         let turb_velocity = (self.velocity + turb_drift).max(0.0);
 
-        let delta = (turb_velocity * elapsed_sec).max(0.0);
+        // Scale position delta by motion_scale for cinematic resume easing.
+        // When motion_scale=0.0 (just resumed), no position change occurs.
+        // When motion_scale=1.0 (fully active), full speed is restored.
+        // This is applied to the final delta (not velocity) so turbulence and
+        // gravity calculations remain accurate across the transition.
+        let delta = (turb_velocity * elapsed_sec * motion_scale).max(0.0);
         let total = self.advance_remainder + delta;
         let whole = total.floor();
         self.advance_remainder = total - whole;

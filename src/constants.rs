@@ -489,6 +489,16 @@ pub const EMERGENT_DENSITY_INTENSITY: f32 = 0.25;
 pub const EMERGENT_SPEED_SHIFT: f32 = 0.15;
 
 // ---------------------------------------------------------------------------
+// Cinematic resume easing (pause → resume transition)
+// ---------------------------------------------------------------------------
+
+/// Exponential time constant for resume ease-in (seconds).
+/// Controls how quickly animation ramps back to full speed after unpause.
+/// At t=tau: ~63%, at t=2*tau: ~86%, at t=3*tau: ~95%.
+/// 0.08s gives a smooth ~200ms cinematic ease-in.
+pub const RESUME_EASE_TAU_SECS: f32 = 0.08;
+
+// ---------------------------------------------------------------------------
 // Hardening: drift correction & terminal safety
 // ---------------------------------------------------------------------------
 
