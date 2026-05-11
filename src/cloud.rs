@@ -304,39 +304,88 @@ impl BehaviorProfile {
     fn params(self) -> ProfileParams {
         match self {
             BehaviorProfile::Monolith => ProfileParams {
-                speed_mult: 0.5, density_mult: 1.3, turbulence_mult: 0.3,
-                phosphor_decay_mult: 0.4, anomaly_freq_mult: 0.4, luminance_offset: -0.1,
-                persistence_boost: 0.3, entropy_rate: 0.3, short_pct: 0.2, linger_mult: 2.0,
+                speed_mult: 0.5,
+                density_mult: 1.3,
+                turbulence_mult: 0.3,
+                phosphor_decay_mult: 0.4,
+                anomaly_freq_mult: 0.4,
+                luminance_offset: -0.1,
+                persistence_boost: 0.3,
+                entropy_rate: 0.3,
+                short_pct: 0.2,
+                linger_mult: 2.0,
             },
             BehaviorProfile::Void => ProfileParams {
-                speed_mult: 0.7, density_mult: 0.4, turbulence_mult: 0.1,
-                phosphor_decay_mult: 1.5, anomaly_freq_mult: 0.2, luminance_offset: -0.2,
-                persistence_boost: -0.1, entropy_rate: 0.2, short_pct: 0.7, linger_mult: 0.5,
+                speed_mult: 0.7,
+                density_mult: 0.4,
+                turbulence_mult: 0.1,
+                phosphor_decay_mult: 1.5,
+                anomaly_freq_mult: 0.2,
+                luminance_offset: -0.2,
+                persistence_boost: -0.1,
+                entropy_rate: 0.2,
+                short_pct: 0.7,
+                linger_mult: 0.5,
             },
             BehaviorProfile::Neural => ProfileParams {
-                speed_mult: 1.5, density_mult: 1.6, turbulence_mult: 2.0,
-                phosphor_decay_mult: 0.8, anomaly_freq_mult: 2.0, luminance_offset: 0.1,
-                persistence_boost: 0.1, entropy_rate: 1.5, short_pct: 0.5, linger_mult: 0.8,
+                speed_mult: 1.5,
+                density_mult: 1.6,
+                turbulence_mult: 2.0,
+                phosphor_decay_mult: 0.8,
+                anomaly_freq_mult: 2.0,
+                luminance_offset: 0.1,
+                persistence_boost: 0.1,
+                entropy_rate: 1.5,
+                short_pct: 0.5,
+                linger_mult: 0.8,
             },
             BehaviorProfile::Decay => ProfileParams {
-                speed_mult: 0.6, density_mult: 0.7, turbulence_mult: 0.5,
-                phosphor_decay_mult: 0.3, anomaly_freq_mult: 0.6, luminance_offset: -0.15,
-                persistence_boost: 0.4, entropy_rate: 0.5, short_pct: 0.6, linger_mult: 1.5,
+                speed_mult: 0.6,
+                density_mult: 0.7,
+                turbulence_mult: 0.5,
+                phosphor_decay_mult: 0.3,
+                anomaly_freq_mult: 0.6,
+                luminance_offset: -0.15,
+                persistence_boost: 0.4,
+                entropy_rate: 0.5,
+                short_pct: 0.6,
+                linger_mult: 1.5,
             },
             BehaviorProfile::Eclipse => ProfileParams {
-                speed_mult: 0.8, density_mult: 1.0, turbulence_mult: 1.0,
-                phosphor_decay_mult: 0.6, anomaly_freq_mult: 1.5, luminance_offset: 0.0,
-                persistence_boost: 0.2, entropy_rate: 0.8, short_pct: 0.4, linger_mult: 1.2,
+                speed_mult: 0.8,
+                density_mult: 1.0,
+                turbulence_mult: 1.0,
+                phosphor_decay_mult: 0.6,
+                anomaly_freq_mult: 1.5,
+                luminance_offset: 0.0,
+                persistence_boost: 0.2,
+                entropy_rate: 0.8,
+                short_pct: 0.4,
+                linger_mult: 1.2,
             },
             BehaviorProfile::Static => ProfileParams {
-                speed_mult: 0.2, density_mult: 0.3, turbulence_mult: 0.05,
-                phosphor_decay_mult: 0.2, anomaly_freq_mult: 0.1, luminance_offset: -0.25,
-                persistence_boost: 0.5, entropy_rate: 0.1, short_pct: 0.9, linger_mult: 3.0,
+                speed_mult: 0.2,
+                density_mult: 0.3,
+                turbulence_mult: 0.05,
+                phosphor_decay_mult: 0.2,
+                anomaly_freq_mult: 0.1,
+                luminance_offset: -0.25,
+                persistence_boost: 0.5,
+                entropy_rate: 0.1,
+                short_pct: 0.9,
+                linger_mult: 3.0,
             },
             BehaviorProfile::Pulse => ProfileParams {
-                speed_mult: 1.2, density_mult: 1.1, turbulence_mult: 1.3,
-                phosphor_decay_mult: 0.9, anomaly_freq_mult: 1.0, luminance_offset: 0.05,
-                persistence_boost: 0.15, entropy_rate: 1.2, short_pct: 0.3, linger_mult: 1.0,
+                speed_mult: 1.2,
+                density_mult: 1.1,
+                turbulence_mult: 1.3,
+                phosphor_decay_mult: 0.9,
+                anomaly_freq_mult: 1.0,
+                luminance_offset: 0.05,
+                persistence_boost: 0.15,
+                entropy_rate: 1.2,
+                short_pct: 0.3,
+                linger_mult: 1.0,
             },
         }
     }
@@ -363,7 +412,8 @@ fn lerp_profile_params(a: ProfileParams, b: ProfileParams, t: f32) -> ProfilePar
         speed_mult: a.speed_mult + (b.speed_mult - a.speed_mult) * t,
         density_mult: a.density_mult + (b.density_mult - a.density_mult) * t,
         turbulence_mult: a.turbulence_mult + (b.turbulence_mult - a.turbulence_mult) * t,
-        phosphor_decay_mult: a.phosphor_decay_mult + (b.phosphor_decay_mult - a.phosphor_decay_mult) * t,
+        phosphor_decay_mult: a.phosphor_decay_mult
+            + (b.phosphor_decay_mult - a.phosphor_decay_mult) * t,
         anomaly_freq_mult: a.anomaly_freq_mult + (b.anomaly_freq_mult - a.anomaly_freq_mult) * t,
         luminance_offset: a.luminance_offset + (b.luminance_offset - a.luminance_offset) * t,
         persistence_boost: a.persistence_boost + (b.persistence_boost - a.persistence_boost) * t,
@@ -459,7 +509,12 @@ impl ColorEcosystem {
         }
     }
 
-    fn tick(&mut self, now: Instant, mt: &mut StdRng, current_scheme: ColorScheme) -> Option<ColorScheme> {
+    fn tick(
+        &mut self,
+        now: Instant,
+        mt: &mut StdRng,
+        current_scheme: ColorScheme,
+    ) -> Option<ColorScheme> {
         let elapsed = now.saturating_duration_since(self.last_tick).as_secs_f32();
         if elapsed < COLOR_ECOSYSTEM_TICK_SECS {
             return None;
@@ -469,13 +524,25 @@ impl ColorEcosystem {
         // Randomly re-evaluate drift directions
         let chance_dist = Uniform::new(0.0f32, 1.0f32).expect("chance_dist always valid");
         if chance_dist.sample(mt) < COLOR_DRIFT_REEVAL_CHANCE {
-            self.luminance_direction = if chance_dist.sample(mt) < 0.5 { -1.0 } else { 1.0 };
+            self.luminance_direction = if chance_dist.sample(mt) < 0.5 {
+                -1.0
+            } else {
+                1.0
+            };
         }
         if chance_dist.sample(mt) < COLOR_DRIFT_REEVAL_CHANCE {
-            self.saturation_direction = if chance_dist.sample(mt) < 0.5 { -1.0 } else { 1.0 };
+            self.saturation_direction = if chance_dist.sample(mt) < 0.5 {
+                -1.0
+            } else {
+                1.0
+            };
         }
         if chance_dist.sample(mt) < COLOR_DRIFT_REEVAL_CHANCE {
-            self.hue_direction = if chance_dist.sample(mt) < 0.5 { -1.0 } else { 1.0 };
+            self.hue_direction = if chance_dist.sample(mt) < 0.5 {
+                -1.0
+            } else {
+                1.0
+            };
         }
 
         // Apply drift rates
@@ -484,9 +551,15 @@ impl ColorEcosystem {
         self.hue_drift += self.hue_direction * COLOR_HUE_DRIFT_RATE;
 
         // Clamp values
-        self.luminance_climate = self.luminance_climate.clamp(COLOR_LUMINANCE_CLIMATE_MIN, COLOR_LUMINANCE_CLIMATE_MAX);
-        self.saturation_climate = self.saturation_climate.clamp(COLOR_SATURATION_CLIMATE_MIN, COLOR_SATURATION_CLIMATE_MAX);
-        self.hue_drift = self.hue_drift.clamp(-std::f32::consts::PI, std::f32::consts::PI);
+        self.luminance_climate = self
+            .luminance_climate
+            .clamp(COLOR_LUMINANCE_CLIMATE_MIN, COLOR_LUMINANCE_CLIMATE_MAX);
+        self.saturation_climate = self
+            .saturation_climate
+            .clamp(COLOR_SATURATION_CLIMATE_MIN, COLOR_SATURATION_CLIMATE_MAX);
+        self.hue_drift = self
+            .hue_drift
+            .clamp(-std::f32::consts::PI, std::f32::consts::PI);
 
         // Autonomous palette drift
         if chance_dist.sample(mt) < AUTONOMOUS_PALETTE_DRIFT_CHANCE {
@@ -540,8 +613,10 @@ impl AtmosphericEvolution {
 
         let tau = std::f32::consts::TAU;
         self.density_offset = (self.entropy_phase * tau).sin() * ATMOSPHERE_DENSITY_RANGE;
-        self.luminance_offset = (self.entropy_phase * tau + std::f32::consts::FRAC_PI_3).sin() * ATMOSPHERE_LUMINANCE_RANGE;
-        self.anomaly_offset = (self.entropy_phase * tau + 2.0 * std::f32::consts::FRAC_PI_3).sin() * ATMOSPHERE_ANOMALY_RANGE;
+        self.luminance_offset = (self.entropy_phase * tau + std::f32::consts::FRAC_PI_3).sin()
+            * ATMOSPHERE_LUMINANCE_RANGE;
+        self.anomaly_offset = (self.entropy_phase * tau + 2.0 * std::f32::consts::FRAC_PI_3).sin()
+            * ATMOSPHERE_ANOMALY_RANGE;
     }
 }
 
@@ -572,8 +647,16 @@ impl RendererMemory {
         }
     }
 
-    fn record_sample(&mut self, now: Instant, anomaly_density: f32, rain_density: f32, luminance: f32) {
-        let elapsed = now.saturating_duration_since(self.last_sample).as_secs_f32();
+    fn record_sample(
+        &mut self,
+        now: Instant,
+        anomaly_density: f32,
+        rain_density: f32,
+        luminance: f32,
+    ) {
+        let elapsed = now
+            .saturating_duration_since(self.last_sample)
+            .as_secs_f32();
         if elapsed < MEMORY_SAMPLE_INTERVAL_SECS {
             return;
         }
@@ -682,7 +765,8 @@ impl StorytellingState {
             } else {
                 EmergentKind::TemporalDilation
             };
-            self.cooldown_until = Some(now + Duration::from_secs_f32(EMERGENT_MOMENT_DURATION_SECS + 60.0));
+            self.cooldown_until =
+                Some(now + Duration::from_secs_f32(EMERGENT_MOMENT_DURATION_SECS + 60.0));
             return Some(kind);
         }
 
@@ -692,7 +776,9 @@ impl StorytellingState {
     fn active_effects(&self, now: Instant) -> EmergentEffects {
         let mut effects = EmergentEffects::default();
         for moment in &self.moments {
-            let elapsed = now.saturating_duration_since(moment.start_time).as_secs_f32();
+            let elapsed = now
+                .saturating_duration_since(moment.start_time)
+                .as_secs_f32();
             if elapsed >= moment.duration {
                 continue;
             }
@@ -716,9 +802,8 @@ impl StorytellingState {
     /// Expire moments past their duration. Must be called separately since
     /// active_effects only borrows &self.
     fn expire_moments(&mut self, now: Instant) {
-        self.moments.retain(|m| {
-            now.saturating_duration_since(m.start_time).as_secs_f32() < m.duration
-        });
+        self.moments
+            .retain(|m| now.saturating_duration_since(m.start_time).as_secs_f32() < m.duration);
     }
 }
 
@@ -1796,10 +1881,7 @@ impl Cloud {
                 } else {
                     // Apply exponential decay
                     let layer = self.phosphor_layer[pidx] as usize;
-                    let decay_mult = PHOSPHOR_LAYER_DECAY_MULT
-                        .get(layer)
-                        .copied()
-                        .unwrap_or(1.0);
+                    let decay_mult = PHOSPHOR_LAYER_DECAY_MULT.get(layer).copied().unwrap_or(1.0);
                     let decay = PHOSPHOR_DECAY_RATE * decay_mult * elapsed_sec;
                     let new_energy = ((self.phosphor[pidx] as f32) * (-decay).exp()) as u8;
                     self.phosphor[pidx] = new_energy;
@@ -1905,8 +1987,7 @@ impl Cloud {
                                 continue;
                             }
 
-                            let dist =
-                                ((col_off * col_off + line_off * line_off) as f32).sqrt();
+                            let dist = ((col_off * col_off + line_off * line_off) as f32).sqrt();
                             if dist > zone.radius as f32 {
                                 continue;
                             }
@@ -1917,8 +1998,7 @@ impl Cloud {
                             let fidx = line as usize * width as usize + col as usize;
                             let cell = frame.cell_at_index(fidx);
                             if let Some(fg) = cell.fg {
-                                let brightened =
-                                    crate::palette::blend_toward_white(fg, intensity);
+                                let brightened = crate::palette::blend_toward_white(fg, intensity);
                                 frame.set(
                                     col,
                                     line,
@@ -1992,8 +2072,7 @@ impl Cloud {
                                 continue;
                             }
 
-                            let dist =
-                                ((col_off * col_off + line_off * line_off) as f32).sqrt();
+                            let dist = ((col_off * col_off + line_off * line_off) as f32).sqrt();
                             let ring_dist = (dist - wave_radius).abs();
                             if ring_dist < ring_width {
                                 let t = 1.0 - ring_dist / ring_width;
@@ -2032,7 +2111,9 @@ impl Cloud {
         let profile = self.profile_current;
 
         // Skip if all modifiers are neutral
-        let needs_luminance = (luminance - 1.0).abs() > 0.01 || emergent.luminance_boost > 0.0 || profile.luminance_offset.abs() > 0.01;
+        let needs_luminance = (luminance - 1.0).abs() > 0.01
+            || emergent.luminance_boost > 0.0
+            || profile.luminance_offset.abs() > 0.01;
         let needs_saturation = (saturation - 1.0).abs() > 0.01;
         let needs_persistence = persistence.abs() > 0.01;
 
@@ -2051,9 +2132,13 @@ impl Cloud {
 
                     // Luminance climate
                     if needs_luminance {
-                        let total_lum = luminance + profile.luminance_offset + emergent.luminance_boost;
+                        let total_lum =
+                            luminance + profile.luminance_offset + emergent.luminance_boost;
                         if total_lum < 1.0 {
-                            modified = crate::palette::apply_brightness(modified, total_lum.clamp(0.0, 1.0));
+                            modified = crate::palette::apply_brightness(
+                                modified,
+                                total_lum.clamp(0.0, 1.0),
+                            );
                         } else if total_lum > 1.0 {
                             let boost = (total_lum - 1.0).clamp(0.0, 0.3);
                             modified = crate::palette::blend_toward_white(modified, boost);
@@ -2073,18 +2158,25 @@ impl Cloud {
                     // Instability pressure: subtle brightness jitter (very rare, very subtle)
                     if instability > 0.15 {
                         // Deterministic jitter based on position and time
-                        let hash = (col as u32).wrapping_mul(2654435761) ^ (line as u32).wrapping_mul(2246822519) ^ (now.elapsed().as_secs() as u32);
+                        let hash = (col as u32).wrapping_mul(2654435761)
+                            ^ (line as u32).wrapping_mul(2246822519)
+                            ^ (now.elapsed().as_secs() as u32);
                         if hash % 1000 < (instability * 50.0) as u32 {
-                            modified = crate::palette::blend_toward_white(modified, instability * 0.1);
+                            modified =
+                                crate::palette::blend_toward_white(modified, instability * 0.1);
                         }
                     }
 
-                    frame.set(col, line, crate::cell::Cell {
-                        ch: cell.ch,
-                        fg: Some(modified),
-                        bg,
-                        bold: cell.bold,
-                    });
+                    frame.set(
+                        col,
+                        line,
+                        crate::cell::Cell {
+                            ch: cell.ch,
+                            fg: Some(modified),
+                            bg,
+                            bold: cell.bold,
+                        },
+                    );
                 }
             }
         }
@@ -2277,14 +2369,18 @@ impl Cloud {
             self.spawn_anomaly(now);
         }
         // Expire old anomaly zones
-        self.anomaly_zones
-            .retain(|z| now.saturating_duration_since(z.start_time).as_secs_f32() < ANOMALY_DURATION_SECS);
+        self.anomaly_zones.retain(|z| {
+            now.saturating_duration_since(z.start_time).as_secs_f32() < ANOMALY_DURATION_SECS
+        });
         // Apply anomaly effects to frame
         self.apply_anomalies(frame, now);
 
         // --- Phase 3: Autonomous cinematic ecosystem tick ---
         // 1. Color ecosystem drift
-        if let Some(new_scheme) = self.color_ecosystem.tick(now, &mut self.mt, self.color_scheme) {
+        if let Some(new_scheme) = self
+            .color_ecosystem
+            .tick(now, &mut self.mt, self.color_scheme)
+        {
             self.set_color_scheme(new_scheme);
         }
 
@@ -2294,17 +2390,29 @@ impl Cloud {
         // 3. Renderer memory sampling
         let anomaly_density = self.anomaly_zones.len() as f32 / ANOMALY_MAX_ZONES.max(1) as f32;
         let rain_density = self.droplet_density;
-        self.memory.record_sample(now, anomaly_density, rain_density, self.color_ecosystem.luminance_climate);
+        self.memory.record_sample(
+            now,
+            anomaly_density,
+            rain_density,
+            self.color_ecosystem.luminance_climate,
+        );
         self.memory.recompute_derived();
 
         // 4. Emergent storytelling
-        if let Some(kind) = self.storytelling.tick(now, &mut self.mt, &self.atmosphere, &self.memory, &self.color_ecosystem) {
+        if let Some(kind) = self.storytelling.tick(
+            now,
+            &mut self.mt,
+            &self.atmosphere,
+            &self.memory,
+            &self.color_ecosystem,
+        ) {
             self.storytelling.moments.push(EmergentMoment {
                 kind,
                 start_time: now,
                 duration: EMERGENT_MOMENT_DURATION_SECS,
             });
-            self.storytelling.cooldown_until = Some(now + Duration::from_secs_f32(EMERGENT_MOMENT_DURATION_SECS + 60.0));
+            self.storytelling.cooldown_until =
+                Some(now + Duration::from_secs_f32(EMERGENT_MOMENT_DURATION_SECS + 60.0));
         }
         self.storytelling.expire_moments(now);
 
@@ -2314,7 +2422,11 @@ impl Cloud {
             let t = (elapsed / PROFILE_TRANSITION_SECS).min(1.0);
             // Smooth step interpolation
             let t = t * t * (3.0 - 2.0 * t);
-            self.profile_current = lerp_profile_params(self.profile_current, self.profile_target, PROFILE_INTERPOLATION_RATE.max(t));
+            self.profile_current = lerp_profile_params(
+                self.profile_current,
+                self.profile_target,
+                PROFILE_INTERPOLATION_RATE.max(t),
+            );
             if t >= 1.0 {
                 self.profile_current = self.profile_target;
                 self.profile_transition_start = None;
@@ -2323,7 +2435,8 @@ impl Cloud {
 
         // 6. Apply atmospheric evolution offsets to rendering parameters
         // Density modulation from atmosphere + memory
-        let _atmo_density_mod = 1.0 + self.atmosphere.density_offset - self.memory.brightness_cooling;
+        let _atmo_density_mod =
+            1.0 + self.atmosphere.density_offset - self.memory.brightness_cooling;
         // Luminance modulation from ecosystem + atmosphere + memory + emergent
         let _emergent_effects = self.storytelling.active_effects(now);
 

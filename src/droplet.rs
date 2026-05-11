@@ -7,10 +7,9 @@ use crate::constants::{
     DROPLET_GRAVITY, DROPLET_TERMINAL_VELOCITY_MULT, FOG_MIN_FACTOR, FOG_ROWS, HEAD_BLOOM_CELLS,
     HEAD_BLOOM_INTENSITY, HEAD_LINGER_BRIGHTNESS_MS, MOUSE_FLASH_DURATION_SECS,
     MOUSE_FLASH_INTENSITY, MOUSE_FLASH_RING_WIDTH, MOUSE_FLASH_SPEED, MOUSE_GLOW_INTENSITY,
-    MOUSE_GLOW_RADIUS_COLS, MOUSE_GLOW_RADIUS_LINES, PARALLAX_BRIGHTNESS_MULT,
-    PARALLAX_GLYPH_DIM, TURBULENCE_AMPLITUDE, TURBULENCE_FREQ,
+    MOUSE_GLOW_RADIUS_COLS, MOUSE_GLOW_RADIUS_LINES, PARALLAX_BRIGHTNESS_MULT, PARALLAX_GLYPH_DIM,
     TRANSITION_ENERGY_DURATION_SECS, TRANSITION_ENERGY_SATURATION_BOOST,
-    TRANSITION_HEAD_GLOW_BOOST,
+    TRANSITION_HEAD_GLOW_BOOST, TURBULENCE_AMPLITUDE, TURBULENCE_FREQ,
 };
 use crate::frame::Frame;
 use crate::palette;
@@ -122,10 +121,10 @@ impl Droplet {
 
         // Subtle velocity turbulence: smooth sinusoidal drift
         self.turb_time += elapsed_sec;
-        let turb_drift = (self.turb_time * TURBULENCE_FREQ * std::f32::consts::TAU + self.turb_phase)
-            .sin()
-            * TURBULENCE_AMPLITUDE
-            * self.chars_per_sec;
+        let turb_drift =
+            (self.turb_time * TURBULENCE_FREQ * std::f32::consts::TAU + self.turb_phase).sin()
+                * TURBULENCE_AMPLITUDE
+                * self.chars_per_sec;
         let turb_velocity = (self.velocity + turb_drift).max(0.0);
 
         let delta = (turb_velocity * elapsed_sec).max(0.0);

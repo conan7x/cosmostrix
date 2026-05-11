@@ -273,7 +273,11 @@ impl BenchProgress {
                  fps: ~{:.0}\n\
                  frametime: {:.3}ms\n\
                  elapsed: {:.1}s / {:.1}s\n",
-                spinner, fps, avg_ft, elapsed_s, duration_s,
+                spinner,
+                fps,
+                avg_ft,
+                elapsed_s,
+                duration_s,
             );
             self.running_initialized = true;
             self.lines_written += LIVE_LINES;
@@ -289,7 +293,12 @@ impl BenchProgress {
              \x1b[2K\rfps: ~{:.0}\n\
              \x1b[2K\rframetime: {:.3}ms\n\
              \x1b[2K\relapsed: {:.1}s / {:.1}s\n",
-            LIVE_LINES, spinner, fps, avg_ft, elapsed_s, duration_s,
+            LIVE_LINES,
+            spinner,
+            fps,
+            avg_ft,
+            elapsed_s,
+            duration_s,
         );
         let _ = io::stderr().flush();
     }
@@ -535,7 +544,8 @@ pub fn run_premium_benchmark(cfg: &CloudConfig) -> std::io::Result<()> {
     let mut r = Report::new("COSMOSTRIX BENCHMARK");
 
     if was_interrupted {
-        r.section("STATUS").advice("interrupted — results are partial");
+        r.section("STATUS")
+            .advice("interrupted — results are partial");
     }
 
     {
