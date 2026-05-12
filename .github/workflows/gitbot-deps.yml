@@ -1,40 +1,44 @@
 # =============================================================================
-# AUTO DEPENDENCY UPDATE - T-800 (SIMPLIFIED)
+# AUTO DEPENDENCY UPDATE - T-800 (WEEKLY)
 # =============================================================================
-# Features:
-# - Daily auto-update dependencies (08:00 WIB / 01:00 UTC)
+# Schedule: Weekly on Saturday 23:00 UTC (Sunday 06:00 WIB)
+#
+# Strategy:
+# - Weekly auto-update minimizes lockfile churn for a stable-phase project
 # - Self-healing: auto-updates GitHub Actions in workflows
-# - Security audit before commit
-# - Test validation
+# - Full validation: audit → deny → fmt → build → test → clippy
+# - No-op detection skips pipeline when nothing changed
 # - Signed-off commits (no GPG signing)
 # - Powered by T-800 automation
+#
+# For daily security audit (non-mutating), see: gitbot-audit.yml
 
 name: "T-800 - Auto Update Dependencies"
-# Disable
-#'on':
-#  schedule:
-#    - cron: "0 1 * * *"  # 08:00 WIB daily
-#  workflow_dispatch:
-#    inputs:
-#      strategy:
-#        description: "How to publish updates"
-#        type: choice
-#        options:
-#          - direct
-#          - pr
-#        default: direct
-#      force_update:
-#        description: "Continue even if tests fail"
-#        type: boolean
-#        default: false
-#      update_workflows:
-#        description: "Also update GitHub Actions versions"
-#        type: boolean
-#        default: true
-#      allow_major_updates:
-#        description: "Allow major version updates for GitHub Actions"
-#        type: boolean
-#        default: false
+
+on:
+  schedule:
+    - cron: "0 23 * * 6"  # Saturday 23:00 UTC (Sunday 06:00 WIB)
+  workflow_dispatch:
+    inputs:
+      strategy:
+        description: "How to publish updates"
+        type: choice
+        options:
+          - direct
+          - pr
+        default: direct
+      force_update:
+        description: "Continue even if tests fail"
+        type: boolean
+        default: false
+      update_workflows:
+        description: "Also update GitHub Actions versions"
+        type: boolean
+        default: true
+      allow_major_updates:
+        description: "Allow major version updates for GitHub Actions"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -73,6 +77,7 @@ jobs:
         uses: Swatinem/rust-cache@v2.8.2
         with:
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Set cargo build jobs
         shell: bash
@@ -601,7 +606,8 @@ jobs:
 
           echo ""
           echo "════════════════════════════════════════════════════════"
-          echo "⏰ Next run: 01:00 UTC (08:00 WIB)"
+          echo "⏰ Next run: Saturday 23:00 UTC (Sunday 06:00 WIB)"
+          echo "🔍 Daily audit: gitbot-audit.yml"
           echo "🚀 Manual trigger: Actions → Auto Update Dependencies"
           echo "════════════════════════════════════════════════════════"
 

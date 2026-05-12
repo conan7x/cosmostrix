@@ -1,0 +1,103 @@
+# =============================================================================
+# DAILY SECURITY AUDIT - T-800 (OBSERVATION ONLY)
+# =============================================================================
+# Schedule: Daily at 00:00 UTC (07:00 WIB)
+#
+# Purpose:
+# - Fast, non-mutating security scan
+# - Early CVE warning without touching Cargo.lock
+# - Minimal CI resource consumption
+#
+# This workflow does NOT modify any repository files.
+# For dependency auto-updates, see: gitbot-deps.yml (weekly)
+
+name: "T-800 - Security Audit"
+
+on:
+  schedule:
+    - cron: "0 0 * * *"  # 00:00 UTC daily (07:00 WIB)
+  workflow_dispatch:
+    inputs:
+      run_deny:
+        description: "Also run cargo-deny policy check"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  security-audit:
+    name: "🔍 Security Audit"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.3.1
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.81.0
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v2.8.2
+        with:
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install audit tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-deny
+
+      - name: Run security audit
+        id: audit
+        run: |
+          echo "════════════════════════════════════════════════════════"
+          echo "🔒 Running security audit..."
+          echo "════════════════════════════════════════════════════════"
+          echo ""
+
+          if cargo audit 2>&1; then
+            echo ""
+            echo "✅ No known vulnerabilities found"
+            echo "status=clean" >> "$GITHUB_OUTPUT"
+          else
+            echo ""
+            echo "⚠️ Vulnerabilities detected — review advisories above"
+            echo "status=vulnerable" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run cargo-deny (on-demand)
+        id: deny
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.run_deny == 'true' }}
+        run: |
+          echo "════════════════════════════════════════════════════════"
+          echo "🛡️ Running dependency policy check (cargo-deny)..."
+          echo "════════════════════════════════════════════════════════"
+          cargo deny check all
+
+      - name: Summary
+        run: |
+          echo "════════════════════════════════════════════════════════"
+          echo "🔍 T-800 - DAILY SECURITY AUDIT SUMMARY"
+          echo "════════════════════════════════════════════════════════"
+          echo ""
+          echo "Status: ${{ steps.audit.outputs.status }}"
+          echo "Trigger: ${{ github.event_name }}"
+          echo ""
+          echo "════════════════════════════════════════════════════════"
+          echo "ℹ️  This workflow is observation-only — no files modified"
+          echo "📦 For auto-updates: see gitbot-deps.yml (weekly)"
+          echo "⏰ Next audit: tomorrow 00:00 UTC (07:00 WIB)"
+          echo "════════════════════════════════════════════════════════"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
