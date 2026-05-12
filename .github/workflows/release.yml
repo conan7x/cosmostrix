@@ -16,6 +16,7 @@ jobs:
   build_packages:
     name: T-800 - Build packages (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -160,17 +161,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
 
-      - name: Install stable toolchain
+      - name: Install audit + deny tools
         if: matrix.checks
-        run: rustup toolchain install stable
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-deny
 
       - name: Audit dependencies
         if: matrix.checks
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo +stable install cargo-audit --locked
-          cargo +stable audit
+        run: cargo audit
 
       - name: Tests
         if: matrix.checks
@@ -262,9 +261,7 @@ jobs:
 
       - name: Dependency policy (cargo-deny)
         if: matrix.checks
-        run: |
-          cargo +stable install cargo-deny --locked
-          cargo +stable deny check all
+        run: cargo deny check all
 
       - name: Clippy
         if: matrix.checks
@@ -380,6 +377,7 @@ jobs:
   build_android:
     name: T-800 - Build packages (android-aarch64-native)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -505,6 +503,7 @@ jobs:
   publish_release:
     name: T-800 - Publish GitHub Release
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [build_packages, build_android]
 
     steps:

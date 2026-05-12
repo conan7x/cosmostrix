@@ -54,6 +54,7 @@ jobs:
   auto-update:
     name: "🤖 T-800 - Dependency & Workflow Update"
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -67,9 +68,6 @@ jobs:
         with:
           toolchain: 1.81.0
           components: rustfmt, clippy
-
-      - name: Install stable toolchain
-        run: rustup toolchain install stable
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v2.8.2
@@ -234,16 +232,16 @@ jobs:
           cargo tree --depth 1 || true
           echo "════════════════════════════════════════════════════════"
 
+      - name: Install audit + deny tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-deny
+
       - name: Baseline security audit (pre-update)
         id: pre_audit
-        shell: bash
         run: |
-          set -euo pipefail
           echo "🔒 Running baseline security audit (pre-update)..."
-
-          cargo +stable install cargo-audit --locked
-
-          if cargo +stable audit; then
+          if cargo audit; then
             echo "vulnerable=false" >> "$GITHUB_OUTPUT"
           else
             echo "vulnerable=true" >> "$GITHUB_OUTPUT"
@@ -255,7 +253,7 @@ jobs:
           echo "🔄 Updating Cargo.lock..."
           CARGO_UPDATE_LOG="${RUNNER_TEMP}/cargo-update.log"
           echo "cargo_update_log=${CARGO_UPDATE_LOG}" >> "$GITHUB_ENV"
-          cargo update 2>&1 | tee "${CARGO_UPDATE_LOG}"
+          cargo update --workspace 2>&1 | tee "${CARGO_UPDATE_LOG}"
 
           echo ""
           echo "════════════════════════════════════════════════════════"
@@ -264,27 +262,41 @@ jobs:
           cargo tree --depth 1 || true
           echo "════════════════════════════════════════════════════════"
 
+      - name: Check if validation is needed
+        id: needs_validation
+        run: |
+          if git diff --quiet Cargo.lock 2>/dev/null && [ "${{ env.workflows_updated }}" != "true" ]; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "✅ No dependency or workflow updates — skipping validation pipeline"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Updates detected — proceeding with validation"
+          fi
+
       - name: Security audit
         id: post_audit
+        if: steps.needs_validation.outputs.needed == 'true'
         run: |
           echo "🔒 Running security audit..."
-          cargo +stable audit
+          cargo audit
 
       - name: Dependency policy (cargo-deny)
         id: deny
+        if: steps.needs_validation.outputs.needed == 'true'
         run: |
           echo "🛡️  Checking dependency policies..."
-          cargo +stable install cargo-deny --locked
-          cargo +stable deny check all
+          cargo deny check all
 
       - name: Format check
         id: fmt
+        if: steps.needs_validation.outputs.needed == 'true'
         run: |
           echo "🎨 Checking code formatting..."
           cargo fmt --all -- --check
 
       - name: Build project
         id: build
+        if: steps.needs_validation.outputs.needed == 'true'
         run: |
           echo "🔨 Building with updated dependencies..."
           cargo build --profile dev --locked --jobs "${CARGO_BUILD_JOBS}"
@@ -296,6 +308,7 @@ jobs:
 
       - name: Run tests
         id: tests
+        if: steps.needs_validation.outputs.needed == 'true'
         run: |
           echo "🧪 Running test suite..."
           cargo test --all --locked
@@ -306,6 +319,7 @@ jobs:
 
       - name: Quick clippy check
         id: clippy
+        if: steps.needs_validation.outputs.needed == 'true'
         run: |
           echo "🔍 Running clippy sanity check..."
           cargo clippy --locked --all-targets --all-features -- -D warnings
@@ -492,8 +506,8 @@ jobs:
       - name: Commit and push changes
         if: steps.check_changes.outputs.changed == 'true' && env.UPDATE_STRATEGY == 'direct'
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "oxyzenQ"
+          git config user.email "130107241+oxyzenQ@users.noreply.github.com"
           git config --local commit.gpgsign false
           git config --local tag.gpgsign false
 
@@ -528,8 +542,8 @@ jobs:
           delete-branch: true
           signoff: true
           labels: ${{ steps.commit_msg.outputs.yamllabels }}
-          committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
-          author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+          committer: oxyzenQ <130107241+oxyzenQ@users.noreply.github.com>
+          author: oxyzenQ <130107241+oxyzenQ@users.noreply.github.com>
 
       - name: Summary
         run: |
