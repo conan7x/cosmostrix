@@ -530,6 +530,11 @@ jobs:
             -m "${{ steps.commit_msg.outputs.title }}" \
             -m "${{ steps.commit_msg.outputs.commit_body }}"
 
+          # Reconfigure remote with github.token (always valid for the run).
+          # BOT_TOKEN may be an expired PAT — checkout still succeeds on a
+          # public repo, but push would fail with "could not read Username".
+          git remote set-url origin "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git"
+
           git push origin main
 
           echo ""
