@@ -46,6 +46,8 @@ permissions:
   pull-requests: write
 
 env:
+  # Opt into Node.js 24 for GitHub Actions (Node 20 deprecated June 2026)
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   CARGO_TERM_COLOR: always
   BOT_TOKEN: ${{ secrets.T800_TOKEN || github.token }}
   HAS_PAT: ${{ secrets.T800_TOKEN != '' }}
@@ -62,7 +64,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4.3.1
+        uses: actions/checkout@v6.0.2
         with:
           token: ${{ env.BOT_TOKEN }}
           fetch-depth: 0
@@ -74,7 +76,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2.8.2
+        uses: Swatinem/rust-cache@v2.9.1
         with:
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -537,7 +539,7 @@ jobs:
       - name: Create pull request
         id: cpr
         if: steps.check_changes.outputs.changed == 'true' && env.UPDATE_STRATEGY == 'pr'
-        uses: peter-evans/create-pull-request@v6.1.0
+        uses: peter-evans/create-pull-request@v8.1.1
         with:
           token: ${{ env.BOT_TOKEN }}
           commit-message: "${{ steps.commit_msg.outputs.commit_message }}"

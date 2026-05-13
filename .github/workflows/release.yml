@@ -80,7 +80,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.3.1
+        uses: actions/checkout@v6.0.2
         with:
           fetch-depth: 0
 
@@ -110,7 +110,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2.8.2
+        uses: Swatinem/rust-cache@v2.9.1
         with:
           cache-on-failure: true
 
@@ -360,7 +360,7 @@ jobs:
 
       - name: Upload artifact
         if: runner.os != 'Windows'
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: packages-${{ matrix.platform }}
           path: dist/*.tar.gz*
@@ -368,7 +368,7 @@ jobs:
 
       - name: Upload artifact
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: packages-${{ matrix.platform }}
           path: dist/*.zip*
@@ -381,7 +381,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.3.1
+        uses: actions/checkout@v6.0.2
         with:
           fetch-depth: 0
 
@@ -408,7 +408,7 @@ jobs:
           toolchain: 1.81.0
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2.8.2
+        uses: Swatinem/rust-cache@v2.9.1
         with:
           cache-on-failure: true
 
@@ -429,14 +429,14 @@ jobs:
           echo "CARGO_BUILD_JOBS=${JOBS}" >> "$GITHUB_ENV"
 
       - name: Setup Java
-        uses: actions/setup-java@v4.8.0
+        uses: actions/setup-java@v5.2.0
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Setup Android NDK
         id: ndk
-        uses: nttld/setup-ndk@v1.5.0
+        uses: nttld/setup-ndk@v1.6.0
         with:
           ndk-version: r26d
 
@@ -494,7 +494,7 @@ jobs:
           echo "--- End archive contents ---"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: packages-android-aarch64-native
           path: dist/*.tar.gz*
@@ -508,7 +508,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4.3.1
+        uses: actions/checkout@v6.0.2
         with:
           fetch-depth: 0
 
@@ -542,7 +542,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4.3.0
+        uses: actions/download-artifact@v8.0.1
         with:
           path: dist
 
@@ -662,7 +662,7 @@ jobs:
 
       - name: Create GitHub Release
         id: gh_release
-        uses: softprops/action-gh-release@v2.5.0
+        uses: softprops/action-gh-release@v3.0.0
         with:
           tag_name: ${{ steps.prep.outputs.tag }}
           name: cosmostrix ${{ steps.prep.outputs.version }}
