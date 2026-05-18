@@ -15,6 +15,12 @@
   <img src="https://img.shields.io/badge/AUR-cosmostrix--bin-1793D1?logo=archlinux" alt="AUR">
 </p>
 
+<p align="center">
+  <a href="https://ko-fi.com/rezky">
+    <img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support me on Ko-fi" />
+  </a>
+</p>
+
 ## Demo
 
 <p align="center">
@@ -188,6 +194,16 @@ Create a release by pushing a `v*` tag. See `workflow/about-ci.md` for CI and re
 ## Contributing
 
 PRs and issues are welcome. Please run `cargo fmt` and `cargo clippy` before submitting.
+
+## Support
+
+cosmostrix is an open-source project built and maintained independently.
+
+If this project helped you, or saved development time, you can support future maintenance here:
+
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/rezky)
+
+Support is optional. The project remains open-source.
 
 ## License
 
