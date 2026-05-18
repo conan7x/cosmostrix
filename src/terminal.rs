@@ -228,8 +228,8 @@ impl Terminal {
             if row_buf.capacity() < need_cap {
                 row_buf.reserve(need_cap - row_buf.capacity());
             }
+            self.stdout.queue(cursor::MoveTo(0, 0))?;
             for y in 0..frame.height {
-                // Skip MoveTo for y=0: cursor is already at (0,0) after Clear.
                 if y > 0 {
                     self.stdout.queue(cursor::MoveTo(0, y))?;
                 }

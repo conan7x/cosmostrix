@@ -216,4 +216,28 @@ mod tests {
         f.clear_with_bg(None);
         assert_eq!(f.get(0, 0).unwrap().ch, ' ');
     }
+
+    #[test]
+    fn top_row_glyph_to_blank_is_dirty() {
+        let mut f = Frame::new(4, 4, None);
+        f.clear_dirty();
+
+        f.set(
+            2,
+            0,
+            Cell {
+                ch: 'x',
+                fg: None,
+                bg: None,
+                bold: false,
+            },
+        );
+        assert_eq!(f.dirty_indices(), &[2]);
+
+        f.clear_dirty();
+        f.set(2, 0, Cell::blank_with_bg(None));
+
+        assert_eq!(f.dirty_indices(), &[2]);
+        assert_eq!(f.get(2, 0).unwrap().ch, ' ');
+    }
 }
