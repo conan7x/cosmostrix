@@ -462,6 +462,64 @@ pub struct ProfileParams {
     pub linger_mult: f32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AtmosphericModifierState {
+    total_luminance_bits: u32,
+    saturation_bits: u32,
+    persistence_bits: u32,
+    instability_bits: u32,
+    jitter_second: Option<u64>,
+    bg: Option<Color>,
+}
+
+impl AtmosphericModifierState {
+    fn from_effective(
+        total_luminance: f32,
+        saturation: f32,
+        persistence: f32,
+        instability: f32,
+        bg: Option<Color>,
+        now: Instant,
+    ) -> Option<Self> {
+        let needs_luminance = (total_luminance - 1.0).abs() > 0.01;
+        let needs_saturation = (saturation - 1.0).abs() > 0.01;
+        let needs_persistence = persistence.abs() > 0.01;
+
+        if !needs_luminance && !needs_saturation && !needs_persistence {
+            return None;
+        }
+
+        Some(Self {
+            total_luminance_bits: total_luminance.to_bits(),
+            saturation_bits: saturation.to_bits(),
+            persistence_bits: persistence.to_bits(),
+            instability_bits: instability.to_bits(),
+            jitter_second: (instability > 0.15).then(|| now.elapsed().as_secs()),
+            bg,
+        })
+    }
+
+    #[inline]
+    fn total_luminance(self) -> f32 {
+        f32::from_bits(self.total_luminance_bits)
+    }
+
+    #[inline]
+    fn saturation(self) -> f32 {
+        f32::from_bits(self.saturation_bits)
+    }
+
+    #[inline]
+    fn persistence(self) -> f32 {
+        f32::from_bits(self.persistence_bits)
+    }
+
+    #[inline]
+    fn instability(self) -> f32 {
+        f32::from_bits(self.instability_bits)
+    }
+}
+
 #[inline]
 fn lerp_profile_params(a: ProfileParams, b: ProfileParams, t: f32) -> ProfileParams {
     ProfileParams {
@@ -1019,6 +1077,9 @@ pub struct Cloud {
     memory: RendererMemory,
     /// Emergent visual storytelling.
     storytelling: StorytellingState,
+    /// Last atmospheric post-process state applied with a full-frame scan.
+    /// When unchanged, only newly dirty cells need the same color math.
+    last_atmospheric_modifier_state: Option<AtmosphericModifierState>,
 }
 
 impl Cloud {
@@ -1124,6 +1185,7 @@ impl Cloud {
             atmosphere: AtmosphericEvolution::new(now),
             memory: RendererMemory::new(now),
             storytelling: StorytellingState::new(now),
+            last_atmospheric_modifier_state: None,
         }
     }
 
@@ -1418,6 +1480,7 @@ impl Cloud {
         self.atmosphere = AtmosphericEvolution::new(now);
         self.memory = RendererMemory::new(now);
         self.storytelling = StorytellingState::new(now);
+        self.last_atmospheric_modifier_state = None;
         self.profile_transition_start = None;
         // Note: profile and profile params are preserved across resets
     }
@@ -2224,85 +2287,117 @@ impl Cloud {
         }
     }
 
-    /// Apply Phase 3 global atmospheric effects to the frame.
-    fn apply_atmospheric_frame_effects(&self, frame: &mut Frame, now: Instant) {
-        let luminance = self.color_ecosystem.luminance_climate;
-        let saturation = self.color_ecosystem.saturation_climate;
-        let instability = self.memory.instability_pressure;
-        let persistence = self.memory.persistence_richness;
+    fn atmospheric_modifier_state(&self, now: Instant) -> Option<AtmosphericModifierState> {
         let emergent = self.storytelling.active_effects(now);
-        let profile = self.profile_current;
+        let total_luminance = self.color_ecosystem.luminance_climate
+            + self.profile_current.luminance_offset
+            + emergent.luminance_boost;
 
-        // Skip if all modifiers are neutral
-        let needs_luminance = (luminance - 1.0).abs() > 0.01
-            || emergent.luminance_boost > 0.0
-            || profile.luminance_offset.abs() > 0.01;
-        let needs_saturation = (saturation - 1.0).abs() > 0.01;
-        let needs_persistence = persistence.abs() > 0.01;
+        AtmosphericModifierState::from_effective(
+            total_luminance,
+            self.color_ecosystem.saturation_climate,
+            self.memory.persistence_richness,
+            self.memory.instability_pressure,
+            self.palette.bg,
+            now,
+        )
+    }
 
-        if !needs_luminance && !needs_saturation && !needs_persistence {
+    #[inline]
+    fn apply_atmospheric_cell(
+        frame: &mut Frame,
+        fidx: usize,
+        col: u16,
+        line: u16,
+        state: AtmosphericModifierState,
+    ) {
+        let cell = frame.cell_at_index(fidx);
+        let Some(fg) = cell.fg else {
             return;
+        };
+
+        let mut modified = fg;
+        let total_lum = state.total_luminance();
+        let saturation = state.saturation();
+        let persistence = state.persistence();
+        let instability = state.instability();
+
+        // Luminance climate
+        if total_lum < 1.0 {
+            modified = crate::palette::apply_brightness(modified, total_lum.clamp(0.0, 1.0));
+        } else if total_lum > 1.0 {
+            let boost = (total_lum - 1.0).clamp(0.0, 0.3);
+            modified = crate::palette::blend_toward_white(modified, boost);
         }
 
-        // Apply to all cells with foreground color
-        let bg = self.palette.bg;
-        for line in 0..self.lines {
-            for col in 0..self.cols {
-                let fidx = line as usize * frame.width as usize + col as usize;
-                let cell = frame.cell_at_index(fidx);
-                if let Some(fg) = cell.fg {
-                    let mut modified = fg;
+        // Saturation climate (desaturate by blending toward luminance-matched gray)
+        if (saturation - 1.0).abs() > 0.01 && saturation < 1.0 {
+            modified = crate::palette::apply_saturation(modified, saturation);
+        }
 
-                    // Luminance climate
-                    if needs_luminance {
-                        let total_lum =
-                            luminance + profile.luminance_offset + emergent.luminance_boost;
-                        if total_lum < 1.0 {
-                            modified = crate::palette::apply_brightness(
-                                modified,
-                                total_lum.clamp(0.0, 1.0),
-                            );
-                        } else if total_lum > 1.0 {
-                            let boost = (total_lum - 1.0).clamp(0.0, 0.3);
-                            modified = crate::palette::blend_toward_white(modified, boost);
-                        }
-                    }
+        // Persistence richness: boost phosphor-like brightness
+        if persistence.abs() > 0.01 && persistence > 0.0 {
+            modified = crate::palette::blend_toward_white(modified, persistence * 0.3);
+        }
 
-                    // Saturation climate (desaturate by blending toward luminance-matched gray)
-                    if needs_saturation && saturation < 1.0 {
-                        modified = crate::palette::apply_saturation(modified, saturation);
-                    }
+        // Instability pressure: subtle brightness jitter (very rare, very subtle)
+        if let Some(jitter_second) = state.jitter_second {
+            // Deterministic jitter based on position and time
+            let hash = (col as u32).wrapping_mul(2654435761)
+                ^ (line as u32).wrapping_mul(2246822519)
+                ^ (jitter_second as u32);
+            if hash % 1000 < (instability * 50.0) as u32 {
+                modified = crate::palette::blend_toward_white(modified, instability * 0.1);
+            }
+        }
 
-                    // Persistence richness: boost phosphor-like brightness
-                    if needs_persistence && persistence > 0.0 {
-                        modified = crate::palette::blend_toward_white(modified, persistence * 0.3);
-                    }
+        frame.set(
+            col,
+            line,
+            crate::cell::Cell {
+                ch: cell.ch,
+                fg: Some(modified),
+                bg: state.bg,
+                bold: cell.bold,
+            },
+        );
+    }
 
-                    // Instability pressure: subtle brightness jitter (very rare, very subtle)
-                    if instability > 0.15 {
-                        // Deterministic jitter based on position and time
-                        let hash = (col as u32).wrapping_mul(2654435761)
-                            ^ (line as u32).wrapping_mul(2246822519)
-                            ^ (now.elapsed().as_secs() as u32);
-                        if hash % 1000 < (instability * 50.0) as u32 {
-                            modified =
-                                crate::palette::blend_toward_white(modified, instability * 0.1);
-                        }
-                    }
+    /// Apply Phase 3 global atmospheric effects to the frame.
+    fn apply_atmospheric_frame_effects(&mut self, frame: &mut Frame, now: Instant) {
+        let Some(state) = self.atmospheric_modifier_state(now) else {
+            self.last_atmospheric_modifier_state = None;
+            return;
+        };
 
-                    frame.set(
-                        col,
-                        line,
-                        crate::cell::Cell {
-                            ch: cell.ch,
-                            fg: Some(modified),
-                            bg,
-                            bold: cell.bold,
-                        },
-                    );
+        let state_changed = self.last_atmospheric_modifier_state != Some(state);
+        let full_frame = state_changed || frame.is_dirty_all();
+
+        if full_frame {
+            // Apply to all cells with foreground color when the global
+            // atmospheric state changes; existing cells need to be retinted.
+            for line in 0..self.lines {
+                for col in 0..self.cols {
+                    let fidx = line as usize * frame.width as usize + col as usize;
+                    Self::apply_atmospheric_cell(frame, fidx, col, line, state);
+                }
+            }
+        } else {
+            // With unchanged global state, existing non-dirty cells already
+            // carry this atmospheric tint. Only newly changed cells need it.
+            let dirty_len = frame.dirty_indices().len();
+            let frame_width = frame.width as usize;
+            for dirty_pos in 0..dirty_len {
+                let fidx = frame.dirty_indices()[dirty_pos];
+                let line = fidx / frame_width;
+                let col = fidx % frame_width;
+                if line < self.lines as usize && col < self.cols as usize {
+                    Self::apply_atmospheric_cell(frame, fidx, col as u16, line as u16, state);
                 }
             }
         }
+
+        self.last_atmospheric_modifier_state = Some(state);
     }
 
     pub fn rain(&mut self, frame: &mut Frame) {
@@ -2624,8 +2719,11 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::Cloud;
+    use crate::cell::Cell;
     use crate::frame::Frame;
+    use crate::palette;
     use crate::runtime::{BoldMode, ColorMode, ColorScheme, ShadingMode};
+    use crossterm::style::Color;
 
     fn make_cloud() -> Cloud {
         let mut cloud = Cloud::new(
@@ -2640,6 +2738,19 @@ mod tests {
         cloud.init_chars(vec!['0', '1']);
         cloud.reset(20, 10);
         cloud
+    }
+
+    fn rgb(r: u8, g: u8, b: u8) -> Color {
+        Color::Rgb { r, g, b }
+    }
+
+    fn colored_cell(ch: char, fg: Color, bg: Option<Color>) -> Cell {
+        Cell {
+            ch,
+            fg: Some(fg),
+            bg,
+            bold: false,
+        }
     }
 
     #[test]
@@ -2677,5 +2788,75 @@ mod tests {
         cloud.rain_at(&mut frame, now);
         cloud.rain_at(&mut frame, now + Duration::from_secs(1));
         assert!(frame.is_dirty_all() || !frame.dirty_indices().is_empty());
+    }
+
+    #[test]
+    fn unchanged_atmospheric_params_process_only_dirty_cells() {
+        let mut cloud = make_cloud();
+        let now = Instant::now();
+        let bg = cloud.palette.bg;
+        let base = rgb(90, 180, 120);
+        let mut frame = Frame::new(20, 10, bg);
+
+        frame.set(0, 0, colored_cell('a', base, bg));
+        frame.set(1, 0, colored_cell('b', base, bg));
+        frame.clear_dirty();
+
+        cloud.last_atmospheric_modifier_state = cloud.atmospheric_modifier_state(now);
+        frame.set(1, 0, colored_cell('c', base, bg));
+
+        cloud.apply_atmospheric_frame_effects(&mut frame, now);
+
+        assert_eq!(frame.get(0, 0).unwrap().fg, Some(base));
+        assert_ne!(frame.get(1, 0).unwrap().fg, Some(base));
+    }
+
+    #[test]
+    fn changed_atmospheric_params_keep_full_frame_behavior() {
+        let mut cloud = make_cloud();
+        let now = Instant::now();
+        let bg = cloud.palette.bg;
+        let base = rgb(90, 180, 120);
+        let mut frame = Frame::new(20, 10, bg);
+
+        frame.set(0, 0, colored_cell('a', base, bg));
+        frame.clear_dirty();
+
+        cloud.last_atmospheric_modifier_state = None;
+        cloud.apply_atmospheric_frame_effects(&mut frame, now);
+
+        assert_ne!(frame.get(0, 0).unwrap().fg, Some(base));
+        assert_eq!(frame.dirty_indices(), &[0]);
+    }
+
+    #[test]
+    fn atmospheric_effect_output_matches_existing_formula_for_processed_cell() {
+        let mut cloud = make_cloud();
+        let now = Instant::now();
+        let bg = cloud.palette.bg;
+        let base = rgb(120, 200, 80);
+        let mut frame = Frame::new(20, 10, bg);
+
+        frame.set(2, 0, colored_cell('x', base, bg));
+        frame.clear_dirty();
+
+        let state = cloud
+            .atmospheric_modifier_state(now)
+            .expect("default profile has non-neutral atmosphere");
+        let mut expected = palette::apply_brightness(base, state.total_luminance().clamp(0.0, 1.0));
+        expected = palette::apply_saturation(expected, state.saturation());
+
+        cloud.apply_atmospheric_frame_effects(&mut frame, now);
+
+        assert_eq!(frame.get(2, 0).unwrap().fg, Some(expected));
+    }
+
+    #[test]
+    fn atmospheric_effects_do_not_panic_on_small_frame() {
+        let mut cloud = make_cloud();
+        cloud.reset(1, 1);
+        let mut frame = Frame::new(1, 1, cloud.palette.bg);
+
+        cloud.apply_atmospheric_frame_effects(&mut frame, Instant::now());
     }
 }
