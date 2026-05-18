@@ -36,7 +36,7 @@ use crossterm::execute;
 
 use crate::constants::{
     ANSI_BYTES_PER_CELL_ESTIMATE, BENCH_ELAPSED_MIN_S, DENSITY_AUTO_DEFAULT_COLS,
-    DENSITY_AUTO_DEFAULT_LINES, MAX_TERMINAL_COLS, MAX_TERMINAL_LINES,
+    DENSITY_AUTO_DEFAULT_LINES, DIRTY_THRESHOLD_RATIO, MAX_TERMINAL_COLS, MAX_TERMINAL_LINES,
 };
 use crate::diagnostics;
 use crate::frame::Frame;
@@ -447,7 +447,11 @@ pub fn run_premium_benchmark(cfg: &CloudConfig) -> std::io::Result<()> {
     let mut total_frames: u64 = 0;
     let mut drawn_frames: u64 = 0;
     let mut total_drawn_cells: u64 = 0;
+    let mut max_dirty_cells: u64 = 0;
+    let mut dirty_all_frames: u64 = 0;
+    let mut estimated_full_redraw_frames: u64 = 0;
     let mut active_streams_sum: u64 = 0;
+    let total_cells = (w as usize) * (h as usize);
 
     let start = Instant::now();
     let bench_end = start + Duration::from_secs(BENCHMARK_DURATION_SECS);
@@ -466,18 +470,22 @@ pub fn run_premium_benchmark(cfg: &CloudConfig) -> std::io::Result<()> {
         let is_dirty_all = frame.is_dirty_all();
         let dirty_len = frame.dirty_indices().len();
         let did_draw = is_dirty_all || dirty_len > 0;
+        let dirty_count = if is_dirty_all { total_cells } else { dirty_len };
         if did_draw {
             drawn_frames += 1;
-            let dirty_count = if is_dirty_all {
-                (w as usize) * (h as usize)
-            } else {
-                dirty_len
-            };
             // Estimate: ~19 bytes ANSI overhead per dirty cell on average
             // (fg escape 20 + bg escape 20 + optional bold 4 + char 1-4 = ~45 bytes).
             // Most cells share styles with neighbors (run-encoding), so the
             // amortized overhead is much lower — ~19 bytes per cell.
             total_drawn_cells += dirty_count as u64;
+        }
+        max_dirty_cells = max_dirty_cells.max(dirty_count as u64);
+        if is_dirty_all {
+            dirty_all_frames += 1;
+        }
+        let dirty_is_large = total_cells > 0 && dirty_len >= (total_cells / DIRTY_THRESHOLD_RATIO);
+        if is_dirty_all || dirty_is_large {
+            estimated_full_redraw_frames += 1;
         }
 
         frame.clear_dirty();
@@ -551,19 +559,36 @@ pub fn run_premium_benchmark(cfg: &CloudConfig) -> std::io::Result<()> {
         "high"
     };
 
-    let total_cells = (w as u64) * (h as u64);
-    let glyphs_per_second = if drawn_frames > 0 {
-        ((drawn_frames * total_cells) as f64 / elapsed_s).round() as u64
+    let total_cells_u64 = (w as u64) * (h as u64);
+    let theoretical_full_frame_glyphs_per_second = if drawn_frames > 0 {
+        ((drawn_frames * total_cells_u64) as f64 / elapsed_s).round() as u64
     } else {
         0
     };
+    let glyphs_per_second = theoretical_full_frame_glyphs_per_second;
+    let dirty_glyphs_per_second = (total_drawn_cells as f64 / elapsed_s).round() as u64;
 
     let ansi_bytes_per_second = ((total_drawn_cells * ANSI_BYTES_PER_CELL_ESTIMATE) as f64
         / elapsed_s.max(0.000_001)) as u64;
     let active_streams_avg = active_streams_sum / total_frames.max(1);
 
-    let draw_ratio = if total_frames > 0 {
+    let active_frame_ratio = if total_frames > 0 {
         (drawn_frames as f64) / (total_frames as f64) * 100.0
+    } else {
+        0.0
+    };
+    let avg_dirty_cells_per_frame = if total_frames > 0 {
+        (total_drawn_cells as f64) / (total_frames as f64)
+    } else {
+        0.0
+    };
+    let avg_dirty_cell_ratio_percent = if total_frames > 0 && total_cells_u64 > 0 {
+        (total_drawn_cells as f64) / ((total_frames * total_cells_u64) as f64) * 100.0
+    } else {
+        0.0
+    };
+    let estimated_full_redraw_ratio_percent = if total_frames > 0 {
+        (estimated_full_redraw_frames as f64) / (total_frames as f64) * 100.0
     } else {
         0.0
     };
@@ -610,12 +635,50 @@ pub fn run_premium_benchmark(cfg: &CloudConfig) -> std::io::Result<()> {
         s.field("avg_frame_time", &format!("{:.3}ms", avg_frame_time));
         s.field("p99_frame_time", &format!("{:.3}ms", p99_frame_time));
         s.field("frame_jitter", jitter_classification);
-        s.field("draw_ratio", &format!("{:.1}%", draw_ratio));
+        s.field("draw_ratio", &format!("{:.1}%", active_frame_ratio));
+        s.field(
+            "draw_ratio_meaning",
+            "legacy: frames with >=1 dirty cell, not cell coverage",
+        );
+        s.field(
+            "active_frame_ratio",
+            &format!("{:.1}% (frames with >=1 dirty cell)", active_frame_ratio),
+        );
+        s.field(
+            "avg_dirty_cells_per_frame",
+            &format!("{:.1}", avg_dirty_cells_per_frame),
+        );
+        s.field("max_dirty_cells_per_frame", &max_dirty_cells.to_string());
+        s.field(
+            "avg_dirty_cell_ratio_percent",
+            &format!("{:.2}%", avg_dirty_cell_ratio_percent),
+        );
+        s.field("dirty_all_frames", &dirty_all_frames.to_string());
+        s.field(
+            "estimated_full_redraw_frames",
+            &estimated_full_redraw_frames.to_string(),
+        );
+        s.field(
+            "estimated_full_redraw_ratio_percent",
+            &format!("{:.1}%", estimated_full_redraw_ratio_percent),
+        );
     }
 
     {
         let s = r.section("THROUGHPUT");
         s.field("glyphs_per_second", &glyphs_per_second.to_string());
+        s.field(
+            "glyphs_per_second_basis",
+            "legacy: theoretical full-frame cells for active frames",
+        );
+        s.field(
+            "dirty_glyphs_per_second",
+            &dirty_glyphs_per_second.to_string(),
+        );
+        s.field(
+            "theoretical_full_frame_glyphs_per_second",
+            &theoretical_full_frame_glyphs_per_second.to_string(),
+        );
         s.field("ansi_bytes_per_second", &ansi_bytes_per_second.to_string());
         s.field("active_streams_avg", &active_streams_avg.to_string());
         s.field("cells_drawn_total", &total_drawn_cells.to_string());
@@ -626,6 +689,7 @@ pub fn run_premium_benchmark(cfg: &CloudConfig) -> std::io::Result<()> {
         s.field("elapsed", &format!("{:.3}s", elapsed_s));
         s.field("total_frames", &total_frames.to_string());
         s.field("drawn_frames", &drawn_frames.to_string());
+        s.field("frames_with_changes", &drawn_frames.to_string());
     }
 
     // Final report goes to stdout — clean, pipeable.
