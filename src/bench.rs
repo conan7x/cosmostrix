@@ -42,8 +42,9 @@ use crate::diagnostics;
 use crate::frame::Frame;
 use crate::renderer_info;
 use crate::report::Report;
+use crate::runtime::ColorMode;
 
-use super::{effective_density, CloudConfig};
+use super::{color_mode_label, detect_color_mode_auto, effective_density, CloudConfig};
 
 /// Duration of the premium benchmark in seconds.
 const BENCHMARK_DURATION_SECS: u64 = 5;
@@ -571,6 +572,11 @@ pub fn run_premium_benchmark(cfg: &CloudConfig) -> std::io::Result<()> {
     let ansi_bytes_per_second = ((total_drawn_cells * ANSI_BYTES_PER_CELL_ESTIMATE) as f64
         / elapsed_s.max(0.000_001)) as u64;
     let active_streams_avg = active_streams_sum / total_frames.max(1);
+    let dirty_threshold_cells = if total_cells > 0 {
+        total_cells / DIRTY_THRESHOLD_RATIO
+    } else {
+        0
+    };
 
     let active_frame_ratio = if total_frames > 0 {
         (drawn_frames as f64) / (total_frames as f64) * 100.0
@@ -596,6 +602,15 @@ pub fn run_premium_benchmark(cfg: &CloudConfig) -> std::io::Result<()> {
     // ── Build report ─────────────────────────────────────────────────────
     let cpu = diagnostics::detect_cpu_info();
     let ri = renderer_info::renderer_info(cfg.color_mode);
+    let auto_color_mode = detect_color_mode_auto();
+    let term = env::var("TERM")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "(unset)".to_string());
+    let colorterm = env::var("COLORTERM")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "(unset)".to_string());
 
     let mut r = Report::new("COSMOSTRIX BENCHMARK");
 
@@ -617,6 +632,11 @@ pub fn run_premium_benchmark(cfg: &CloudConfig) -> std::io::Result<()> {
         s.field("pacing", ri.pacing);
         s.field("frame_strategy", ri.frame_strategy);
         s.field("color_depth", ri.color_depth);
+        s.field("effective_color_mode", color_mode_label(cfg.color_mode));
+        s.field(
+            "auto_detected_color_mode",
+            color_mode_label(auto_color_mode),
+        );
         s.field("io_strategy", ri.io_strategy);
     }
 
@@ -626,6 +646,8 @@ pub fn run_premium_benchmark(cfg: &CloudConfig) -> std::io::Result<()> {
         s.field("lines", &h.to_string());
         s.field("target_fps", &format!("{:.1}", cfg.target_fps));
         s.field("density", &format!("{:.2}", cfg.density));
+        s.field("TERM", &term);
+        s.field("COLORTERM", &colorterm);
     }
 
     {
@@ -654,6 +676,7 @@ pub fn run_premium_benchmark(cfg: &CloudConfig) -> std::io::Result<()> {
             &format!("{:.2}%", avg_dirty_cell_ratio_percent),
         );
         s.field("dirty_all_frames", &dirty_all_frames.to_string());
+        s.field("dirty_threshold_cells", &dirty_threshold_cells.to_string());
         s.field(
             "estimated_full_redraw_frames",
             &estimated_full_redraw_frames.to_string(),
@@ -661,6 +684,17 @@ pub fn run_premium_benchmark(cfg: &CloudConfig) -> std::io::Result<()> {
         s.field(
             "estimated_full_redraw_ratio_percent",
             &format!("{:.1}%", estimated_full_redraw_ratio_percent),
+        );
+        s.field(
+            "estimated_full_redraw_basis",
+            &format!(
+                "dirty cells >= total cells / {} (terminal threshold estimate)",
+                DIRTY_THRESHOLD_RATIO
+            ),
+        );
+        s.field(
+            "estimated_full_redraw_meaning",
+            "frames likely to use full redraw in Terminal::draw, not dirty_all",
         );
     }
 
@@ -690,6 +724,18 @@ pub fn run_premium_benchmark(cfg: &CloudConfig) -> std::io::Result<()> {
         s.field("total_frames", &total_frames.to_string());
         s.field("drawn_frames", &drawn_frames.to_string());
         s.field("frames_with_changes", &drawn_frames.to_string());
+    }
+
+    if cfg.color_mode == ColorMode::Color16
+        && avg_dirty_cell_ratio_percent >= (100.0 / DIRTY_THRESHOLD_RATIO as f64)
+    {
+        r.section("NOTES")
+            .advice(
+                "16-color mode with atmospheric foreground retinting can dirty many colored cells.",
+            )
+            .advice(
+                "Compare runs with --colormode 0, --colormode 256, or a truecolor-capable terminal.",
+            );
     }
 
     // Final report goes to stdout — clean, pipeable.
