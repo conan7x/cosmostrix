@@ -77,6 +77,37 @@ fn spin_wait(deadline: Instant) {
     }
 }
 
+#[inline]
+fn is_runtime_idle(last_input_time: Instant, now: Instant) -> bool {
+    now.saturating_duration_since(last_input_time).as_secs_f64() >= IDLE_THRESHOLD_SECS
+}
+
+#[inline]
+fn idle_resync_due(is_idle: bool, last_resync_time: Instant, now: Instant) -> bool {
+    is_idle
+        && now
+            .saturating_duration_since(last_resync_time)
+            .as_secs_f64()
+            >= IDLE_REDRAW_RESYNC_INTERVAL_SECS
+}
+
+#[inline]
+fn register_activity(
+    last_input_time: &mut Instant,
+    last_resync_time: &mut Instant,
+    now: Instant,
+    was_idle: bool,
+    force_resync: bool,
+) -> bool {
+    *last_input_time = now;
+    if was_idle || force_resync {
+        *last_resync_time = now;
+        true
+    } else {
+        false
+    }
+}
+
 /// Rolling frame time tracker: allocation-free fixed-size ring buffer.
 ///
 /// Tracks the last 60 frame times in milliseconds. Only used when
@@ -291,6 +322,7 @@ pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
     // After IDLE_THRESHOLD_SECS with no input, effective FPS is reduced to
     // IDLE_FPS_FACTOR × target_fps. Any input event instantly restores.
     let mut last_input_time = Instant::now();
+    let mut last_resync_time = last_input_time;
     let idle_period = Duration::from_secs_f64(1.0 / (cfg.target_fps * IDLE_FPS_FACTOR));
 
     let mut charset_preset = cfg.charset_preset.clone();
@@ -309,7 +341,13 @@ pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
         // Adaptive throttling: detect idle state (no input for IDLE_THRESHOLD_SECS)
         // and reduce effective FPS to conserve CPU/battery. Any input event
         // instantly restores full performance.
-        let is_idle = last_input_time.elapsed().as_secs_f64() >= IDLE_THRESHOLD_SECS;
+        let loop_now = Instant::now();
+        let is_idle = is_runtime_idle(last_input_time, loop_now);
+        if idle_resync_due(is_idle, last_resync_time, loop_now) {
+            cloud.force_draw_everything();
+            last_resync_time = loop_now;
+            next_frame = loop_now;
+        }
 
         let frame_period = if cloud.pause {
             pause_period
@@ -333,7 +371,9 @@ pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
             let (nw, nh) = term.size()?;
             pending_resize = Some((nw, nh));
             cloud.force_draw_everything();
-            next_frame = Instant::now();
+            let reinit_time = Instant::now();
+            last_resync_time = reinit_time;
+            next_frame = reinit_time;
         }
 
         loop {
@@ -352,7 +392,17 @@ pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
                     }
                     Event::Key(k) if k.kind == KeyEventKind::Press => {
                         // Any user input resets idle timer for adaptive throttling.
-                        last_input_time = Instant::now();
+                        let activity_time = Instant::now();
+                        if register_activity(
+                            &mut last_input_time,
+                            &mut last_resync_time,
+                            activity_time,
+                            is_idle,
+                            false,
+                        ) {
+                            cloud.force_draw_everything();
+                            next_frame = activity_time;
+                        }
                         if cfg.screensaver {
                             cloud.raining = false;
                             break;
@@ -372,10 +422,33 @@ pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
                     }
                     Event::Mouse(m) => {
                         // Mouse interaction resets idle timer.
-                        last_input_time = Instant::now();
+                        let activity_time = Instant::now();
+                        if register_activity(
+                            &mut last_input_time,
+                            &mut last_resync_time,
+                            activity_time,
+                            is_idle,
+                            false,
+                        ) {
+                            cloud.force_draw_everything();
+                            next_frame = activity_time;
+                        }
                         cloud.set_mouse_position(m.column, m.row);
                         if matches!(m.kind, MouseEventKind::Down(_)) {
                             cloud.set_mouse_click(m.column, m.row);
+                        }
+                    }
+                    Event::FocusGained => {
+                        let activity_time = Instant::now();
+                        if register_activity(
+                            &mut last_input_time,
+                            &mut last_resync_time,
+                            activity_time,
+                            is_idle,
+                            true,
+                        ) {
+                            cloud.force_draw_everything();
+                            next_frame = activity_time;
                         }
                     }
                     _ => {}
@@ -452,6 +525,7 @@ pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
                 ));
             }
             cloud.force_draw_everything();
+            last_resync_time = Instant::now();
         }
 
         cloud.set_perf_pressure(perf_pressure);
@@ -772,4 +846,85 @@ fn spawn_watchdog() {
             stuck_count = 0;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn idle_resync_uses_wall_clock_time() {
+        let start = Instant::now();
+        let due = start + Duration::from_secs_f64(IDLE_REDRAW_RESYNC_INTERVAL_SECS + 0.1);
+        let early = start + Duration::from_secs_f64(IDLE_REDRAW_RESYNC_INTERVAL_SECS - 0.1);
+
+        assert!(!idle_resync_due(true, start, early));
+        assert!(idle_resync_due(true, start, due));
+        assert!(!idle_resync_due(false, start, due));
+    }
+
+    #[test]
+    fn idle_to_active_activity_schedules_resync() {
+        let start = Instant::now();
+        let activity_time = start + Duration::from_secs(60);
+        let mut last_input_time = start;
+        let mut last_resync_time = start;
+
+        assert!(register_activity(
+            &mut last_input_time,
+            &mut last_resync_time,
+            activity_time,
+            true,
+            false,
+        ));
+        assert_eq!(last_input_time, activity_time);
+        assert_eq!(last_resync_time, activity_time);
+    }
+
+    #[test]
+    fn active_mouse_activity_does_not_force_resync_every_frame() {
+        let start = Instant::now();
+        let activity_time = start + Duration::from_secs(1);
+        let mut last_input_time = start;
+        let mut last_resync_time = start;
+
+        assert!(!register_activity(
+            &mut last_input_time,
+            &mut last_resync_time,
+            activity_time,
+            false,
+            false,
+        ));
+        assert_eq!(last_input_time, activity_time);
+        assert_eq!(last_resync_time, start);
+    }
+
+    #[test]
+    fn focus_activity_can_force_resync_while_active() {
+        let start = Instant::now();
+        let activity_time = start + Duration::from_secs(1);
+        let mut last_input_time = start;
+        let mut last_resync_time = start;
+
+        assert!(register_activity(
+            &mut last_input_time,
+            &mut last_resync_time,
+            activity_time,
+            false,
+            true,
+        ));
+        assert_eq!(last_resync_time, activity_time);
+    }
+
+    #[test]
+    fn idle_state_stays_idle_until_activity_resets_timer() {
+        let start = Instant::now();
+        let idle_now = start + Duration::from_secs_f64(IDLE_THRESHOLD_SECS + 0.1);
+        let later_idle_now = idle_now + Duration::from_secs(5);
+        let active_now = start + Duration::from_secs(1);
+
+        assert!(!is_runtime_idle(start, active_now));
+        assert!(is_runtime_idle(start, idle_now));
+        assert!(is_runtime_idle(start, later_idle_now));
+    }
 }

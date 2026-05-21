@@ -157,6 +157,11 @@ pub const IDLE_THRESHOLD_SECS: f64 = 30.0;
 /// configured FPS target to reduce update pressure during inactivity.
 pub const IDLE_FPS_FACTOR: f64 = 0.25;
 
+/// Wall-clock interval for one-shot full redraws while idle. This keeps
+/// terminal/compositor state synchronized even when idle FPS makes the
+/// frame-count drift correction too sparse in real time.
+pub const IDLE_REDRAW_RESYNC_INTERVAL_SECS: f64 = 20.0;
+
 // ---------------------------------------------------------------------------
 // Benchmark
 // ---------------------------------------------------------------------------

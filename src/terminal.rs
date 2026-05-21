@@ -80,6 +80,7 @@ pub struct Terminal {
     row_dirty: Vec<Vec<usize>>,
     touched_rows: Vec<u16>,
     mouse_capture_enabled: bool,
+    focus_change_enabled: bool,
     /// Set to `true` after flush completes; the force-exit watchdog checks
     /// this and skips `process::exit` when cleanup finished normally.
     shutdown_complete: Arc<AtomicBool>,
@@ -122,6 +123,7 @@ impl Terminal {
             row_dirty: Vec::new(),
             touched_rows: Vec::new(),
             mouse_capture_enabled: false,
+            focus_change_enabled: false,
             shutdown_complete: Arc::new(AtomicBool::new(false)),
         })
     }
@@ -148,8 +150,10 @@ impl Terminal {
     /// Enable mouse capture so mouse events are reported.
     pub fn enable_mouse_capture(&mut self) -> Result<()> {
         self.stdout.execute(event::EnableMouseCapture)?;
-        self.stdout.flush()?;
         self.mouse_capture_enabled = true;
+        self.stdout.execute(event::EnableFocusChange)?;
+        self.focus_change_enabled = true;
+        self.stdout.flush()?;
         Ok(())
     }
 
@@ -157,12 +161,16 @@ impl Terminal {
     pub fn disable_mouse_capture(&mut self) -> Result<()> {
         if self.mouse_capture_enabled {
             self.stdout.execute(event::DisableMouseCapture)?;
-            self.stdout.flush()?;
             self.mouse_capture_enabled = false;
             // Keep the global signal-handler flag in sync so that signal
             // handlers don't issue a redundant DisableMouseCapture later.
             crate::interactive::clear_mouse_capture_flag();
         }
+        if self.focus_change_enabled {
+            self.stdout.execute(event::DisableFocusChange)?;
+            self.focus_change_enabled = false;
+        }
+        self.stdout.flush()?;
         Ok(())
     }
 
@@ -478,6 +486,7 @@ impl Drop for Terminal {
 pub fn restore_terminal_best_effort() {
     let mut out = stdout();
     let _ = out.execute(event::DisableMouseCapture);
+    let _ = out.execute(event::DisableFocusChange);
     let _ = out.execute(SetAttribute(Attribute::Reset));
     let _ = out.execute(ResetColor);
     let _ = out.execute(cursor::Show);
