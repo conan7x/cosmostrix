@@ -39,7 +39,6 @@ Workflow files live under:
 #### Tag conventions (release channel)
 
 - `vX.Y.Z-alpha.N`, `vX.Y.Z-beta.N`, `vX.Y.Z-rc.N` => published as **prerelease** (not Latest)
-- `vX.Y.Z-stable.N` => published as a **normal release** (eligible to become **Latest**)
 - `vX.Y.Z` => published as a **normal release** (eligible to become **Latest**)
 
 #### What it builds
@@ -143,24 +142,24 @@ The `publish_release` job:
 ```bash
 # 1) Update Cargo.toml version
 # 2) Commit the version bump
-git commit -am "release: 1.0.1-stable.1"
+git commit -am "release: 2.1.0"
 
 # 3) Create an annotated tag
-git tag -a v1.0.1-stable.1 -m v1.0.1-stable.1
+git tag -a v2.1.0 -m v2.1.0
 
 # 4) Push the tag (this triggers the Release workflow)
-git push origin v1.0.1-stable.1
+git push origin v2.1.0
 
 # 5) if want to delete/repush
-git tag -d v1.0.1-stable.1
-git push origin :refs/tags/v1.0.1-stable.1
-git tag -a v1.0.1-stable.1 -m v1.0.1-stable.1
-git push origin v1.0.1-stable.1
+git tag -d v2.1.0
+git push origin :refs/tags/v2.1.0
+git tag -a v2.1.0 -m v2.1.0
+git push origin v2.1.0
 ```
 
 - The **Release** workflow will run on that tag.
 - `-alpha.*` / `-beta.*` / `-rc.*` tags are marked as prerelease.
-- `-stable.*` tags are treated as normal releases.
+- Stable tags use the simple `vX.Y.Z` format (no `-stable.N` suffix).
 
 ### Dependency update bot (`.github/workflows/gitbot-deps.yml`)
 

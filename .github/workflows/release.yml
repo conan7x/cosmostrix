@@ -84,6 +84,27 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          # Reject old format like v2.1.0-stable.1
+          if [[ "${TAG}" =~ -stable\. ]]; then
+            echo "::error::Old tag format detected: ${TAG}"
+            echo "Stable releases no longer use -stable.N suffixes."
+            echo "Use format: vX.Y.Z, example: v2.1.0"
+            exit 1
+          fi
+          # Must match vX.Y.Z or vX.Y.Z-prerelease.N
+          if ! [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+(\.[0-9]+)?)?$ ]]; then
+            echo "::error::Invalid release tag: ${TAG}"
+            echo "Expected format: vX.Y.Z (stable) or vX.Y.Z-<channel>.N (pre-release)"
+            echo "Examples: v2.1.0, v2.2.0-beta.1"
+            exit 1
+          fi
+          echo "Tag validation passed: ${TAG}"
+
       - name: Determine version
         id: ver
         shell: bash
@@ -492,6 +513,22 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
+      - name: Validate tag matches Cargo.toml
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CARGO_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if [[ -z "${CARGO_VERSION}" ]]; then
+            echo "::error::Could not extract version from Cargo.toml"
+            exit 1
+          fi
+          if [[ "${TAG_VERSION}" != "${CARGO_VERSION}" ]]; then
+            echo "::error::Tag version ${TAG_VERSION} does not match Cargo.toml version ${CARGO_VERSION}"
+            exit 1
+          fi
+          echo "Version check passed: tag ${TAG_VERSION} == Cargo.toml ${CARGO_VERSION}"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -639,7 +676,12 @@ jobs:
           if [[ "${VERSION}" == *-* ]]; then
             SUFFIX="${VERSION#*-}"
             case "${SUFFIX}" in
-              stable.*) PRE="false";;
+              stable.*)
+                echo "::error::Old -stable.N format is no longer supported: ${TAG}"
+                echo "Use format: vX.Y.Z for stable releases, e.g. v2.1.0"
+                exit 1
+                ;;
+              alpha.*|beta.*|rc.*) PRE="true";;
               *) PRE="true";;
             esac
           fi
@@ -774,7 +816,7 @@ jobs:
         uses: softprops/action-gh-release@v3.0.0
         with:
           tag_name: ${{ steps.prep.outputs.tag }}
-          name: cosmostrix ${{ steps.prep.outputs.version }}
+          name: Cosmostrix ${{ steps.prep.outputs.tag }}
           draft: false
           prerelease: ${{ steps.ver.outputs.prerelease }}
           make_latest: ${{ steps.ver.outputs.prerelease != 'true' }}

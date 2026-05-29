@@ -84,7 +84,7 @@ Download from [Releases](https://github.com/oxyzenQ/cosmostrix/releases), verify
 
 ```bash
 REPO="oxyzenQ/cosmostrix"
-TAG="v2.0.0-stable.1"
+TAG="v2.1.0"
 PLATFORM="linux-x86_64-v3"
 curl -LO "https://github.com/${REPO}/releases/download/${TAG}/cosmostrix-bin-${TAG}-${PLATFORM}.tar.gz"
 curl -LO "https://github.com/${REPO}/releases/download/${TAG}/cosmostrix-bin-${TAG}-${PLATFORM}.tar.gz.sha512"
@@ -297,7 +297,7 @@ notes on comparing release vs local `pro-native` builds.
 - Ghost glyph threshold prevents stale charset from filling background on full redraw
 - Safe terminal cleanup on all exit paths (RAII guard + `--reset-terminal`)
 
-### v2.0.0-stable.1
+### v2.0.0
 
 - Fixed stale glyph artifacts in the top visible rows during charset and theme changes.
 - Fixed long-idle rain/trail resync issues with wall-clock redraw scheduling and focus/input redraw resync.
@@ -306,6 +306,12 @@ notes on comparing release vs local `pro-native` builds.
 - Removed unused low-value support code while preserving rendering behavior.
 - Completed 10h+ visual soak checks across Alacritty, Konsole, and WezTerm.
 - Resource monitoring found no memory, file descriptor, thread, swap, CPU, or IO leak during the release soak.
+
+## Versioning
+
+Cosmostrix uses SemVer for package versions, e.g. `2.1.0`.
+Git tags and GitHub Releases use a leading `v`, e.g. `v2.1.0`.
+Stable releases do not use `-stable.N` suffixes.
 
 ## Development
 
