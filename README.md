@@ -116,6 +116,13 @@ COSMOSTRIX_BUILD=linux-x86_64-v3 COSMOSTRIX_PROFILE=pro-linux-v3 \
   cargo build --profile pro-linux-v3 --target x86_64-unknown-linux-gnu
 ```
 
+Do not use plain `cargo build --profile pro-linux-v3 --target x86_64-unknown-linux-gnu`
+for release artifacts. Stable Cargo profiles cannot store per-profile
+`target-cpu` flags, so that command is only a profile build, not a CPU-tuned
+v3 build. Official aliases and release jobs set `COSMOSTRIX_BUILD`,
+`COSMOSTRIX_PROFILE`, and matching `RUSTFLAGS`; if those claimed metadata values
+and Cargo's compile-time target features disagree, the build fails.
+
 Artifact variants use explicit CPU baselines:
 
 - `linux-x86_64-v1`: maximum x86_64 compatibility

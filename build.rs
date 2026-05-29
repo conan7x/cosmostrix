@@ -19,22 +19,33 @@ struct Profile {
 
 fn main() {
     println!("cargo:rerun-if-changed=Cargo.toml");
+    emit_git_rerun_triggers();
     println!("cargo:rerun-if-env-changed=COSMOSTRIX_BUILD");
     println!("cargo:rerun-if-env-changed=COSMOSTRIX_PROFILE");
     println!("cargo:rerun-if-env-changed=COSMOSTRIX_LTO");
     println!("cargo:rerun-if-env-changed=COSMOSTRIX_PANIC");
     println!("cargo:rerun-if-env-changed=COSMOSTRIX_STRIP");
+    println!("cargo:rerun-if-env-changed=CARGO_CFG_TARGET_FEATURE");
     println!("cargo:rerun-if-env-changed=RUSTFLAGS");
     println!("cargo:rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS");
     println!("cargo:rerun-if-env-changed=GITHUB_SHA");
 
     let profile_name = detect_profile_name();
+    let target_features = target_features();
+    let target_features_display = format_target_features(&target_features);
 
     let build_id = std::env::var("COSMOSTRIX_BUILD")
         .ok()
         .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| infer_build_id(&profile_name));
+        .unwrap_or_else(|| infer_build_id(&target_features));
+    let cpu_baseline = cpu_baseline(&build_id, &profile_name, &target_features);
+    verify_cpu_baseline(&build_id, &profile_name, cpu_baseline, &target_features);
+    let optimization = optimization_label(&build_id, cpu_baseline, &target_features);
+
     println!("cargo:rustc-env=COSMOSTRIX_BUILD={build_id}");
+    println!("cargo:rustc-env=COSMOSTRIX_OPTIMIZATION={optimization}");
+    println!("cargo:rustc-env=COSMOSTRIX_CPU_BASELINE={cpu_baseline}");
+    println!("cargo:rustc-env=COSMOSTRIX_TARGET_FEATURES={target_features_display}");
 
     let sha = git_short_sha()
         .or_else(|| env_short_sha("GITHUB_SHA"))
@@ -49,6 +60,19 @@ fn main() {
     println!("cargo:rustc-env=COSMOSTRIX_LTO={}", metadata.lto);
     println!("cargo:rustc-env=COSMOSTRIX_PANIC={}", metadata.panic);
     println!("cargo:rustc-env=COSMOSTRIX_STRIP={}", metadata.strip);
+}
+
+fn emit_git_rerun_triggers() {
+    println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed=.git/packed-refs");
+
+    let Ok(head) = std::fs::read_to_string(".git/HEAD") else {
+        return;
+    };
+    let head = head.trim();
+    if let Some(reference) = head.strip_prefix("ref: ") {
+        println!("cargo:rerun-if-changed=.git/{reference}");
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,15 +106,26 @@ fn detect_build_metadata(profile_name: &str) -> BuildMetadata {
 }
 
 fn detect_profile_name() -> String {
-    std::env::var("COSMOSTRIX_PROFILE")
+    if let Some(profile) = std::env::var("COSMOSTRIX_PROFILE")
         .ok()
         .filter(|v| !v.trim().is_empty())
-        .or_else(|| {
-            std::env::var("CARGO_PROFILE_NAME")
-                .ok()
-                .filter(|v| !v.trim().is_empty())
-        })
-        .or_else(infer_profile_from_out_dir)
+    {
+        return profile;
+    }
+
+    let cargo_profile = std::env::var("CARGO_PROFILE_NAME")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    let out_dir_profile = infer_profile_from_out_dir();
+
+    if let Some(profile) = cargo_profile {
+        let cargo_profile_is_generic = profile == "release" || profile == "debug";
+        if !cargo_profile_is_generic || out_dir_profile.as_deref() == Some(profile.as_str()) {
+            return profile;
+        }
+    }
+
+    out_dir_profile
         .or_else(|| {
             std::env::var("PROFILE")
                 .ok()
@@ -266,6 +301,206 @@ fn normalize_strip(value: &str) -> String {
     .to_string()
 }
 
+fn target_features() -> HashSet<String> {
+    std::env::var("CARGO_CFG_TARGET_FEATURE")
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn format_target_features(features: &HashSet<String>) -> String {
+    let mut features: Vec<_> = features.iter().map(String::as_str).collect();
+    features.sort_unstable();
+    if features.is_empty() {
+        "none".to_string()
+    } else {
+        features.join(",")
+    }
+}
+
+fn cpu_baseline(build_id: &str, profile_name: &str, features: &HashSet<String>) -> &'static str {
+    let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    if arch == "aarch64" {
+        return "aarch64-native";
+    }
+    if arch != "x86_64" {
+        return "unknown";
+    }
+
+    claimed_x86_baseline(build_id)
+        .or_else(|| claimed_x86_baseline(profile_name))
+        .unwrap_or_else(|| detected_x86_baseline(features))
+}
+
+fn claimed_x86_baseline(value: &str) -> Option<&'static str> {
+    if value.ends_with("-v4") {
+        Some("x86-64-v4")
+    } else if value.ends_with("-v3") {
+        Some("x86-64-v3")
+    } else if value.ends_with("-v2") {
+        Some("x86-64-v2")
+    } else if value.ends_with("-v1") {
+        Some("x86-64-v1")
+    } else {
+        None
+    }
+}
+
+fn detected_x86_baseline(features: &HashSet<String>) -> &'static str {
+    if has_all_features(
+        features,
+        &["avx512f", "avx512bw", "avx512cd", "avx512dq", "avx512vl"],
+    ) {
+        "x86-64-v4"
+    } else if has_all_features(features, &["avx2", "bmi2", "fma"]) {
+        "x86-64-v3"
+    } else if has_all_features(features, &["sse4.2", "popcnt"]) {
+        "x86-64-v2"
+    } else {
+        "x86-64-v1"
+    }
+}
+
+fn verify_cpu_baseline(
+    build_id: &str,
+    profile_name: &str,
+    baseline: &str,
+    features: &HashSet<String>,
+) {
+    let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let official_linux_x86 = (build_id.starts_with("linux-x86_64-")
+        || profile_name.starts_with("pro-linux-v"))
+        && os == "linux"
+        && arch == "x86_64";
+
+    if !official_linux_x86 {
+        return;
+    }
+
+    let missing = missing_required_features(baseline, features);
+    if !missing.is_empty() {
+        fail_cpu_baseline(
+            build_id,
+            profile_name,
+            baseline,
+            features,
+            &format!(
+                "missing compile-time target features: {}",
+                missing.join(",")
+            ),
+        );
+    }
+
+    if baseline == "x86-64-v1"
+        && has_any_features(
+            features,
+            &["sse4.2", "popcnt", "avx2", "bmi2", "fma", "avx512f"],
+        )
+    {
+        fail_cpu_baseline(
+            build_id,
+            profile_name,
+            baseline,
+            features,
+            "v1 artifact was built with newer x86_64 CPU features enabled",
+        );
+    }
+
+    if baseline == "x86-64-v2" && has_any_features(features, &["avx2", "bmi2", "fma", "avx512f"]) {
+        fail_cpu_baseline(
+            build_id,
+            profile_name,
+            baseline,
+            features,
+            "v2 artifact was built with v3/v4 CPU features enabled",
+        );
+    }
+}
+
+fn optimization_label(build_id: &str, baseline: &str, features: &HashSet<String>) -> &'static str {
+    if is_native_tuned_build(build_id) {
+        return "native CPU tuned build";
+    }
+
+    match baseline {
+        "x86-64-v4"
+            if has_all_features(
+                features,
+                &["avx512f", "avx512bw", "avx512cd", "avx512dq", "avx512vl"],
+            ) =>
+        {
+            "x86-64-v4 baseline (AVX-512)"
+        }
+        "x86-64-v3" if has_all_features(features, &["avx", "avx2", "bmi1", "bmi2", "fma"]) => {
+            "x86-64-v3 baseline (AVX/AVX2/BMI1/BMI2/FMA)"
+        }
+        "x86-64-v2"
+            if has_all_features(features, &["sse3", "ssse3", "sse4.1", "sse4.2", "popcnt"]) =>
+        {
+            "x86-64-v2 baseline (SSE3/SSSE3/SSE4.1/SSE4.2/POPCNT)"
+        }
+        "x86-64-v1" if has_all_features(features, &["sse", "sse2"]) => "x86-64 baseline (SSE/SSE2)",
+        "aarch64-native" => "aarch64 target build",
+        "unknown" => "generic target build",
+        _ => "generic CPU baseline build",
+    }
+}
+
+fn is_native_tuned_build(build_id: &str) -> bool {
+    if build_id.starts_with("android-") {
+        return false;
+    }
+
+    let rustflags = std::env::var("RUSTFLAGS").unwrap_or_default();
+    let encoded_rustflags = std::env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default();
+    rustflags.contains("target-cpu=native") || encoded_rustflags.contains("target-cpu=native")
+}
+
+fn missing_required_features(baseline: &str, features: &HashSet<String>) -> Vec<&'static str> {
+    let required: &[&str] = match baseline {
+        "x86-64-v4" => &["avx512f", "avx512bw", "avx512cd", "avx512dq", "avx512vl"],
+        "x86-64-v3" => &["avx2", "bmi2", "fma"],
+        "x86-64-v2" => &["sse4.2", "popcnt"],
+        _ => &[],
+    };
+
+    required
+        .iter()
+        .copied()
+        .filter(|feature| !features.contains(*feature))
+        .collect()
+}
+
+fn has_all_features(features: &HashSet<String>, required: &[&str]) -> bool {
+    required.iter().all(|feature| features.contains(*feature))
+}
+
+fn has_any_features(features: &HashSet<String>, denied: &[&str]) -> bool {
+    denied.iter().any(|feature| features.contains(*feature))
+}
+
+fn fail_cpu_baseline(
+    build_id: &str,
+    profile_name: &str,
+    baseline: &str,
+    features: &HashSet<String>,
+    reason: &str,
+) -> ! {
+    eprintln!("Cosmostrix CPU baseline mismatch:");
+    eprintln!("  build: {build_id}");
+    eprintln!("  profile: {profile_name}");
+    eprintln!("  claimed baseline: {baseline}");
+    eprintln!("  target_features: {}", format_target_features(features));
+    eprintln!("  reason: {reason}");
+    eprintln!();
+    eprintln!("Use the cargo aliases (for example `cargo pro-linux-v3`) or set matching RUSTFLAGS explicitly.");
+    std::process::exit(1);
+}
+
 fn env_short_sha(name: &str) -> Option<String> {
     let v = std::env::var(name).ok()?;
     let v = v.trim();
@@ -304,7 +539,7 @@ fn git_short_sha() -> Option<String> {
     }
 }
 
-fn infer_build_id(profile_name: &str) -> String {
+fn infer_build_id(features: &HashSet<String>) -> String {
     let os_raw = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "unknown".to_string());
     let os = match os_raw.as_str() {
         "macos" => "darwin",
@@ -312,19 +547,9 @@ fn infer_build_id(profile_name: &str) -> String {
     };
 
     let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "unknown".to_string());
-    let features = std::env::var("CARGO_CFG_TARGET_FEATURE").unwrap_or_default();
-
     if arch == "x86_64" {
         if os == "linux" {
-            let variant = if profile_name == "pro-linux-v4" {
-                "v4"
-            } else if profile_name == "pro-linux-v3" {
-                "v3"
-            } else if profile_name == "pro-linux-v2" {
-                "v2"
-            } else if profile_name == "pro-linux-v1" {
-                "v1"
-            } else if features.contains("avx512f") {
+            let variant = if features.contains("avx512f") {
                 "v4"
             } else if features.contains("avx2") {
                 "v3"

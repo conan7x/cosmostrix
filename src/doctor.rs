@@ -52,7 +52,7 @@ pub fn print_doctor_report(args: &Args) {
         s.field("stdin_tty", if stdin_tty { "yes" } else { "no" });
         s.field("stdout_tty", if stdout_tty { "yes" } else { "no" });
         s.field("variant", cpu.variant);
-        s.field("optimization", &diagnostics::feature_string(&cpu.features));
+        s.field("optimization", env!("COSMOSTRIX_OPTIMIZATION"));
         s.field("build", cpu.build_variant);
     }
 

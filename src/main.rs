@@ -982,8 +982,10 @@ fn main() -> std::io::Result<()> {
                 s.field("commit", sha);
             }
             s.field("variant", cpu.build_variant);
-            s.field("optimization", &diagnostics::feature_string(&cpu.features));
+            s.field("optimization", env!("COSMOSTRIX_OPTIMIZATION"));
             s.field("dispatch", cpu.dispatch);
+            s.field("cpu_baseline", env!("COSMOSTRIX_CPU_BASELINE"));
+            s.field("target_features", env!("COSMOSTRIX_TARGET_FEATURES"));
             s.field("rustc", env!("COSMOSTRIX_RUSTC_VERSION"));
             s.field("lto", env!("COSMOSTRIX_LTO"));
             s.field("panic", env!("COSMOSTRIX_PANIC"));

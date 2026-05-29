@@ -64,6 +64,8 @@ Workflow files live under:
   - `cosmostrix -i` metadata checks for runnable artifacts:
     - expected `variant`
     - `dispatch: static optimized build`
+    - expected `cpu_baseline`
+    - compile-time `target_features` required for the claimed CPU tier
     - `lto: fat`
     - `panic: unwind`
     - `strip: yes`
@@ -79,6 +81,8 @@ Linux x86_64 release artifacts are built with explicit baselines:
 
 `target-cpu=native` is reserved for local/native non-x86_64 release jobs and
 developer aliases; it is not used for distributed Linux x86_64 artifacts.
+The build script fails official Linux x86_64 tier builds when the claimed
+variant and Cargo's compile-time `CARGO_CFG_TARGET_FEATURE` set disagree.
 
 #### Packaging output
 

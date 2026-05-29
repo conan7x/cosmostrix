@@ -622,7 +622,7 @@ pub fn run_premium_benchmark(cfg: &CloudConfig) -> std::io::Result<()> {
     {
         let s = r.section("SYSTEM");
         s.field("variant", cpu.variant);
-        s.field("optimization", &diagnostics::feature_string(&cpu.features));
+        s.field("optimization", env!("COSMOSTRIX_OPTIMIZATION"));
         s.field("build", cpu.build_variant);
     }
 
