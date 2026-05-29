@@ -213,9 +213,13 @@ pub const TRAIL_EXPONENTIAL_K: f64 = 3.0;
 pub const MAX_PALETTE_SLOTS: usize = 4;
 
 /// Palette transition duration in milliseconds.
-/// Short enough that a keypress visibly responds on the next frame while still
-/// leaving room for a cinematic cascade.
-pub const COLOR_TRANSITION_DURATION_MS: u16 = 240;
+/// Fast enough that a keypress feels confirmed immediately while still leaving
+/// room for a visible cinematic cascade.
+pub const COLOR_TRANSITION_DURATION_MS: u16 = 150;
+
+/// Minimum fraction of columns that adopt a new palette on the first
+/// transition frame. This avoids the "one tiny column changed" perception.
+pub const COLOR_TRANSITION_INITIAL_VISIBLE_PCT: f32 = 0.12;
 
 /// Charset transition duration in milliseconds.
 /// Uses a top-to-bottom wave so glyph identity changes read as intentional

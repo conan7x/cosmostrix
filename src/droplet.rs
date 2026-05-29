@@ -320,6 +320,7 @@ impl Droplet {
                 && !is_glitched
                 && line != self.end_line
                 && !ctx.shading_distance
+                && !ctx.transitioning
                 && !ctx.charset_transitioning()
                 && !draw_everything
             {

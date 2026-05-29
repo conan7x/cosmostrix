@@ -1203,15 +1203,20 @@ impl Cloud {
             return;
         }
 
+        let len = self.column_transition_delay_ms.len();
         let max_delay = COLOR_TRANSITION_DURATION_MS as u32;
+        let initial_columns =
+            ((len as f32 * COLOR_TRANSITION_INITIAL_VISIBLE_PCT).ceil() as usize).max(1);
         for (col, delay) in self.column_transition_delay_ms.iter_mut().enumerate() {
-            let organic = (col as u32)
-                .wrapping_mul(37)
-                .wrapping_add(((col as u32) >> 1).wrapping_mul(11))
-                % (max_delay + 1);
-            *delay = organic as u16;
+            if col < initial_columns {
+                *delay = 0;
+            } else {
+                let wave = ((col - initial_columns + 1) as u32).saturating_mul(max_delay)
+                    / (len - initial_columns + 1) as u32;
+                let shimmer = ((col as u32).wrapping_mul(17) % 19).min(max_delay);
+                *delay = wave.saturating_add(shimmer).min(max_delay) as u16;
+            }
         }
-        self.column_transition_delay_ms[0] = 0;
     }
 
     /// Set mouse cursor position for interaction effects.
@@ -2410,6 +2415,15 @@ impl Cloud {
                     }
                 }
             }
+            for d in &mut self.droplets {
+                let col = d.bound_col as usize;
+                if d.is_alive
+                    && col < self.column_palette_slot.len()
+                    && self.column_palette_slot[col] == self.active_palette_slot
+                {
+                    d.palette_slot = self.active_palette_slot;
+                }
+            }
             if all_ready {
                 self.transition_start = None;
             }
@@ -2725,8 +2739,8 @@ mod tests {
 
     use super::{Cloud, DrawCtx};
     use crate::constants::{
-        CHARSET_TRANSITION_DURATION_MS, COLOR_TRANSITION_DURATION_MS, FULL_REDRAW_INTERVAL_FRAMES,
-        MAX_PALETTE_SLOTS,
+        CHARSET_TRANSITION_DURATION_MS, COLOR_TRANSITION_DURATION_MS,
+        COLOR_TRANSITION_INITIAL_VISIBLE_PCT, FULL_REDRAW_INTERVAL_FRAMES, MAX_PALETTE_SLOTS,
     };
     use crate::frame::Frame;
     use crate::runtime::{BoldMode, ColorMode, ColorScheme, ShadingMode};
@@ -2814,10 +2828,32 @@ mod tests {
             cloud.column_transition_delay_ms.contains(&0),
             "at least one column must update on the next frame"
         );
+        let immediate_columns = cloud
+            .column_transition_delay_ms
+            .iter()
+            .filter(|&&delay| delay == 0)
+            .count();
+        let min_immediate = ((cloud.column_transition_delay_ms.len() as f32
+            * COLOR_TRANSITION_INITIAL_VISIBLE_PCT)
+            .ceil() as usize)
+            .max(1);
+        assert!(
+            immediate_columns >= min_immediate,
+            "first transition frame should visibly update a band of columns"
+        );
         assert!(cloud
             .column_transition_delay_ms
             .iter()
             .all(|&delay| delay <= COLOR_TRANSITION_DURATION_MS));
+
+        cloud.transition_start = Some(now);
+        cloud.rain_at(&mut frame, now);
+        let initially_adopted = cloud
+            .column_palette_slot
+            .iter()
+            .filter(|&&slot| slot == cloud.active_palette_slot)
+            .count();
+        assert!(initially_adopted >= min_immediate);
 
         cloud.transition_start =
             Some(now - Duration::from_millis(COLOR_TRANSITION_DURATION_MS as u64 + 1));

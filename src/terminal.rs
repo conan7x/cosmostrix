@@ -83,6 +83,7 @@ pub struct Terminal {
     touched_rows: Vec<u16>,
     mouse_capture_enabled: bool,
     focus_change_enabled: bool,
+    bracketed_paste_enabled: bool,
     raw_mode_enabled: bool,
     alternate_screen_enabled: bool,
     cursor_hidden: bool,
@@ -111,6 +112,7 @@ impl Terminal {
             touched_rows: Vec::new(),
             mouse_capture_enabled: false,
             focus_change_enabled: false,
+            bracketed_paste_enabled: false,
             raw_mode_enabled: true,
             alternate_screen_enabled: false,
             cursor_hidden: false,
@@ -127,6 +129,9 @@ impl Terminal {
             term.cursor_hidden = true;
             if out.execute(terminal::DisableLineWrap).is_ok() {
                 term.line_wrap_disabled = true;
+            }
+            if out.execute(event::EnableBracketedPaste).is_ok() {
+                term.bracketed_paste_enabled = true;
             }
             out.execute(SetAttribute(Attribute::Reset))?;
             out.execute(ResetColor)?;
@@ -194,6 +199,10 @@ impl Terminal {
         self.cleaned_up = true;
 
         let _ = self.disable_mouse_capture();
+        if self.bracketed_paste_enabled {
+            let _ = self.stdout.execute(event::DisableBracketedPaste);
+            self.bracketed_paste_enabled = false;
+        }
         let _ = self.stdout.execute(SetAttribute(Attribute::Reset));
         let _ = self.stdout.execute(ResetColor);
         if self.cursor_hidden {
@@ -520,6 +529,7 @@ pub fn restore_terminal_best_effort() {
     let mut out = stdout();
     let _ = out.execute(event::DisableMouseCapture);
     let _ = out.execute(event::DisableFocusChange);
+    let _ = out.execute(event::DisableBracketedPaste);
     let _ = out.write_all(TERMINAL_RESET_SEQUENCE.as_bytes());
     let _ = out.execute(SetAttribute(Attribute::Reset));
     let _ = out.execute(ResetColor);
@@ -531,7 +541,7 @@ pub fn restore_terminal_best_effort() {
 }
 
 pub const TERMINAL_RESET_SEQUENCE: &str =
-    "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l\x1b[?1004l\x1b[?1049l\x1b[?25h\x1b[0m";
+    "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l\x1b[?2004l\x1b[?1004l\x1b[?1049l\x1b[?25h\x1b[0m";
 
 pub fn reset_terminal_emergency() {
     restore_terminal_best_effort();
@@ -560,6 +570,7 @@ mod tests {
     struct CleanupFlags {
         mouse: bool,
         focus: bool,
+        bracketed_paste: bool,
         cursor: bool,
         wrap: bool,
         alternate: bool,
@@ -582,6 +593,10 @@ mod tests {
             if self.focus {
                 plan.push("disable-focus");
                 self.focus = false;
+            }
+            if self.bracketed_paste {
+                plan.push("disable-bracketed-paste");
+                self.bracketed_paste = false;
             }
             if self.cursor {
                 plan.push("show-cursor");
@@ -606,7 +621,7 @@ mod tests {
     #[test]
     fn emergency_reset_sequence_disables_terminal_reporting_modes() {
         for mode in [
-            "?1000l", "?1002l", "?1003l", "?1006l", "?1015l", "?1004l", "?1049l", "?25h",
+            "?1000l", "?1002l", "?1003l", "?1006l", "?1015l", "?2004l", "?1004l", "?1049l", "?25h",
         ] {
             assert!(
                 TERMINAL_RESET_SEQUENCE.contains(mode),
@@ -621,6 +636,7 @@ mod tests {
         let mut flags = CleanupFlags {
             mouse: true,
             focus: true,
+            bracketed_paste: true,
             cursor: true,
             wrap: true,
             alternate: true,
@@ -633,6 +649,7 @@ mod tests {
             [
                 "disable-mouse",
                 "disable-focus",
+                "disable-bracketed-paste",
                 "show-cursor",
                 "enable-wrap",
                 "leave-alternate",

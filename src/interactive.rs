@@ -108,6 +108,46 @@ fn register_activity(
     }
 }
 
+const PASTE_BURST_SUPPRESS_MS: u64 = 50;
+
+#[derive(Default)]
+struct PasteBurstGuard {
+    suppress_until: Option<Instant>,
+}
+
+impl PasteBurstGuard {
+    fn ignore_plain_key(
+        &mut self,
+        key: &crossterm::event::KeyEvent,
+        now: Instant,
+        queued_event_ready: bool,
+    ) -> bool {
+        if !is_plain_printable_key(key) {
+            return false;
+        }
+
+        if self.suppress_until.is_some_and(|until| now <= until) || queued_event_ready {
+            self.suppress_until = Some(now + Duration::from_millis(PASTE_BURST_SUPPRESS_MS));
+            true
+        } else {
+            false
+        }
+    }
+
+    fn note_bracketed_paste(&mut self, now: Instant) {
+        self.suppress_until = Some(now + Duration::from_millis(PASTE_BURST_SUPPRESS_MS));
+    }
+}
+
+fn is_plain_printable_key(key: &crossterm::event::KeyEvent) -> bool {
+    use crossterm::event::{KeyCode, KeyModifiers};
+
+    matches!(key.code, KeyCode::Char(_))
+        && (key.modifiers.is_empty()
+            || key.modifiers == KeyModifiers::SHIFT
+            || key.modifiers == KeyModifiers::NONE)
+}
+
 /// Rolling frame time tracker: allocation-free fixed-size ring buffer.
 ///
 /// Tracks the last 60 frame times in milliseconds. Only used when
@@ -329,6 +369,7 @@ pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
     let mut charset_preset = cfg.charset_preset.clone();
     let user_ranges = cfg.user_ranges.clone();
     let def_ascii = cfg.def_ascii;
+    let mut paste_guard = PasteBurstGuard::default();
 
     while cloud.raining {
         // Check for graceful shutdown request from signal handler.
@@ -386,8 +427,22 @@ pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
                         last_resize_event = Some(Instant::now());
                     }
                     Event::Key(k) if k.kind == KeyEventKind::Press => {
-                        // Any user input resets idle timer for adaptive throttling.
                         let activity_time = Instant::now();
+                        let queued_event_ready = Terminal::poll_event(Duration::from_millis(0))?;
+                        if paste_guard.ignore_plain_key(&k, activity_time, queued_event_ready) {
+                            let _ = register_activity(
+                                &mut last_input_time,
+                                &mut last_resync_time,
+                                activity_time,
+                                is_idle,
+                                false,
+                            );
+                            cloud.force_draw_everything();
+                            next_frame = activity_time;
+                            continue;
+                        }
+
+                        // Any user input resets idle timer for adaptive throttling.
                         if register_activity(
                             &mut last_input_time,
                             &mut last_resync_time,
@@ -416,6 +471,19 @@ pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
                         ) {
                             next_frame = Instant::now();
                         }
+                    }
+                    Event::Paste(_) => {
+                        let activity_time = Instant::now();
+                        paste_guard.note_bracketed_paste(activity_time);
+                        let _ = register_activity(
+                            &mut last_input_time,
+                            &mut last_resync_time,
+                            activity_time,
+                            is_idle,
+                            false,
+                        );
+                        cloud.force_draw_everything();
+                        next_frame = activity_time;
                     }
                     Event::Mouse(m) if cfg.mouse => {
                         // Mouse interaction resets idle timer.
@@ -862,6 +930,11 @@ fn spawn_watchdog() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn key(ch: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE)
+    }
 
     #[test]
     fn idle_resync_uses_wall_clock_time() {
@@ -937,5 +1010,46 @@ mod tests {
         assert!(!is_runtime_idle(start, active_now));
         assert!(is_runtime_idle(start, idle_now));
         assert!(is_runtime_idle(start, later_idle_now));
+    }
+
+    #[test]
+    fn plain_shortcut_key_is_not_ignored_without_burst() {
+        let now = Instant::now();
+        let mut guard = PasteBurstGuard::default();
+
+        assert!(!guard.ignore_plain_key(&key('p'), now, false));
+    }
+
+    #[test]
+    fn paste_burst_ignores_shortcut_letters() {
+        let now = Instant::now();
+        let mut guard = PasteBurstGuard::default();
+
+        assert!(guard.ignore_plain_key(&key('p'), now, true));
+        assert!(guard.ignore_plain_key(&key('c'), now + Duration::from_millis(1), false));
+        assert!(guard.ignore_plain_key(&key('s'), now + Duration::from_millis(2), false));
+    }
+
+    #[test]
+    fn paste_burst_suppression_expires() {
+        let now = Instant::now();
+        let mut guard = PasteBurstGuard::default();
+
+        assert!(guard.ignore_plain_key(&key('p'), now, true));
+        assert!(!guard.ignore_plain_key(
+            &key('p'),
+            now + Duration::from_millis(PASTE_BURST_SUPPRESS_MS + 1),
+            false,
+        ));
+    }
+
+    #[test]
+    fn bracketed_paste_starts_printable_suppression_window() {
+        let now = Instant::now();
+        let mut guard = PasteBurstGuard::default();
+
+        guard.note_bracketed_paste(now);
+
+        assert!(guard.ignore_plain_key(&key('p'), now + Duration::from_millis(1), false));
     }
 }
