@@ -408,7 +408,7 @@ pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
                             break;
                         }
 
-                        handle_keybinding(
+                        if handle_keybinding(
                             &mut cloud,
                             &mut frame,
                             &k,
@@ -418,7 +418,9 @@ pub fn run_interactive(cfg: &CloudConfig) -> std::io::Result<()> {
                             cfg,
                             #[cfg(unix)]
                             &term_reinit,
-                        );
+                        ) {
+                            next_frame = Instant::now();
+                        }
                     }
                     Event::Mouse(m) => {
                         // Mouse interaction resets idle timer.
@@ -675,7 +677,7 @@ fn handle_keybinding(
     def_ascii: bool,
     _cfg: &CloudConfig,
     #[cfg(unix)] term_reinit: &Arc<AtomicBool>,
-) {
+) -> bool {
     use crossterm::event::KeyCode;
     use crossterm::event::KeyModifiers;
 
@@ -718,8 +720,7 @@ fn handle_keybinding(
             *charset_preset = next.to_string();
             if let Ok(cs) = charset_from_str(charset_preset, def_ascii) {
                 let chars = build_chars(cs, user_ranges, def_ascii);
-                cloud.init_chars(chars);
-                cloud.force_draw_everything();
+                cloud.transition_chars(chars);
             }
         }
         (KeyCode::Char('S'), _) => {
@@ -727,8 +728,7 @@ fn handle_keybinding(
             *charset_preset = prev.to_string();
             if let Ok(cs) = charset_from_str(charset_preset, def_ascii) {
                 let chars = build_chars(cs, user_ranges, def_ascii);
-                cloud.init_chars(chars);
-                cloud.force_draw_everything();
+                cloud.transition_chars(chars);
             }
         }
         (KeyCode::Char('a'), _) => {
@@ -738,7 +738,7 @@ fn handle_keybinding(
             cloud.set_glitchy(!cloud.glitchy);
         }
         (KeyCode::Char('p'), _) => {
-            cloud.toggle_pause();
+            return cloud.toggle_pause();
         }
         (KeyCode::Char('m'), _) => {
             cloud.cycle_profile();
@@ -804,6 +804,8 @@ fn handle_keybinding(
         (KeyCode::Char('%'), _) => cloud.set_color_scheme(ColorScheme::Vaporwave),
         _ => {}
     }
+
+    false
 }
 
 fn spawn_watchdog() {

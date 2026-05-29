@@ -89,6 +89,8 @@ pub struct DrawCtx<'a> {
     pub color_map: &'a [u8],
     pub glitch_map: &'a BitSlice,
     pub char_pool: &'a [char],
+    pub previous_char_pool: &'a [char],
+    pub charset_wave_line: Option<f32>,
 
     /// Mouse cursor column (u16::MAX if no mouse).
     pub mouse_col: u16,
@@ -149,10 +151,34 @@ impl DrawCtx<'_> {
     }
 
     #[inline]
-    pub fn get_char(&self, line: u16, char_pool_idx: u16) -> char {
-        let len = self.char_pool.len().max(1);
+    pub fn get_char(&self, line: u16, col: u16, char_pool_idx: u16) -> char {
+        let pool = if self.charset_uses_previous_pool(line, col) {
+            self.previous_char_pool
+        } else {
+            self.char_pool
+        };
+        let len = pool.len().max(1);
         let idx = ((char_pool_idx as usize) + (line as usize)) % len;
-        self.char_pool.get(idx).copied().unwrap_or('0')
+        pool.get(idx).copied().unwrap_or('0')
+    }
+
+    #[inline]
+    pub fn charset_transitioning(&self) -> bool {
+        self.charset_wave_line.is_some()
+    }
+
+    #[inline]
+    fn charset_uses_previous_pool(&self, line: u16, col: u16) -> bool {
+        let Some(wave_line) = self.charset_wave_line else {
+            return false;
+        };
+        if self.previous_char_pool.is_empty() {
+            return false;
+        }
+
+        let jitter =
+            (((line as u32).wrapping_mul(17) ^ (col as u32).wrapping_mul(31)) % 3) as f32 * 0.18;
+        (line as f32) > wave_line + jitter
     }
 
     #[inline]
@@ -883,6 +909,8 @@ pub struct Cloud {
 
     chars: Vec<char>,
     char_pool: Vec<char>,
+    previous_char_pool: Vec<char>,
+    charset_transition_start: Option<Instant>,
     glitch_pool: Vec<char>,
     glitch_pool_idx: usize,
 
@@ -960,8 +988,9 @@ pub struct Cloud {
     /// at staggered times, creating an organic propagation wave.
     column_palette_slot: Vec<u8>,
 
-    /// Per-column stagger delay (in ms) before adopting a new palette.
-    /// Randomized within [0, COLUMN_TRANSITION_STAGGER_MS] for desynchronization.
+    /// Per-column delay (in ms) before adopting a new palette.
+    /// Deterministic within [0, COLOR_TRANSITION_DURATION_MS] so runtime
+    /// color changes are responsive and repeatable under test.
     column_transition_delay_ms: Vec<u16>,
 
     /// Mouse cursor column position (u16::MAX if no mouse).
@@ -1062,6 +1091,8 @@ impl Cloud {
             spawn_scan_idx: 0,
             chars: Vec::new(),
             char_pool: Vec::new(),
+            previous_char_pool: Vec::new(),
+            charset_transition_start: None,
             glitch_pool: Vec::new(),
             glitch_pool_idx: 0,
             glitch_map: BitVec::new(),
@@ -1156,19 +1187,31 @@ impl Cloud {
         // Regenerate color map for the new palette size
         self.fill_color_map();
 
-        // Start transition: assign per-column stagger delays for desynchronization.
-        // Each column adopts the new palette at a slightly different time,
-        // creating an organic top-to-bottom propagation wave.
+        // Start transition: assign deterministic per-column delays. At least
+        // one column moves on the very next frame, while the whole palette
+        // handoff completes quickly enough to feel responsive.
         self.transition_start = Some(Instant::now());
-        let stagger_dist = Uniform::new_inclusive(0u16, COLUMN_TRANSITION_STAGGER_MS)
-            .expect("stagger_dist: 0 <= COLUMN_TRANSITION_STAGGER_MS always valid");
-        for delay in &mut self.column_transition_delay_ms {
-            *delay = stagger_dist.sample(&mut self.mt);
-        }
+        self.assign_color_transition_delays();
 
         // Do NOT force a full redraw — old streams must persist with their
         // birth palette.  The new palette propagates only through newly
         // spawned streams, creating the cinematic transition effect.
+    }
+
+    fn assign_color_transition_delays(&mut self) {
+        if self.column_transition_delay_ms.is_empty() {
+            return;
+        }
+
+        let max_delay = COLOR_TRANSITION_DURATION_MS as u32;
+        for (col, delay) in self.column_transition_delay_ms.iter_mut().enumerate() {
+            let organic = (col as u32)
+                .wrapping_mul(37)
+                .wrapping_add(((col as u32) >> 1).wrapping_mul(11))
+                % (max_delay + 1);
+            *delay = organic as u16;
+        }
+        self.column_transition_delay_ms[0] = 0;
     }
 
     /// Set mouse cursor position for interaction effects.
@@ -1292,15 +1335,17 @@ impl Cloud {
         self.max_sim_delta = d;
     }
 
-    pub fn toggle_pause(&mut self) {
+    pub fn toggle_pause(&mut self) -> bool {
         self.pause = !self.pause;
         if self.pause {
             self.pause_time = Some(Instant::now());
+            true
         } else if let Some(pt) = self.pause_time.take() {
             let now = Instant::now();
             let elapsed = now.saturating_duration_since(pt);
             // Shift all active droplet timestamps so they resume seamlessly.
             self.last_spawn_time += elapsed;
+            self.spawn_remainder = 0.0;
             for d in &mut self.droplets {
                 if d.is_alive {
                     d.increment_time(elapsed);
@@ -1329,10 +1374,16 @@ impl Cloud {
             if let Some(ref mut pt) = self.profile_transition_start {
                 *pt += elapsed;
             }
+            if let Some(ref mut ct) = self.charset_transition_start {
+                *ct += elapsed;
+            }
             // Initialize cinematic resume easing: simulation time scale ramps
-            // from 0→1 over 300ms using smoothstep S-curve for inertia recovery.
+            // from 0→1 over RESUME_EASE_DURATION_SECS using smoothstep S-curve.
             self.resume_blend = 0.0;
             self.resume_start = Some(now);
+            true
+        } else {
+            true
         }
     }
 
@@ -1378,6 +1429,8 @@ impl Cloud {
         self.column_transition_delay_ms.clear();
         self.column_transition_delay_ms.resize(cols as usize, 0);
         self.transition_start = None;
+        self.previous_char_pool.clear();
+        self.charset_transition_start = None;
 
         self.fill_glitch_map();
         self.fill_color_map();
@@ -1423,6 +1476,38 @@ impl Cloud {
     }
 
     pub fn init_chars(&mut self, chars: Vec<char>) {
+        self.rebuild_char_pools(chars);
+        self.previous_char_pool.clear();
+        self.charset_transition_start = None;
+
+        self.reset_phosphor_state();
+
+        // Flag semantic invalidation so the Terminal's LastFrame cache is
+        // fully invalidated on the next rain_at() call. This eliminates stale
+        // glyph residue that can persist when only dirty-region invalidation
+        // is used — immediate charset initialization is a semantic mutation,
+        // not a cell mutation.
+        self.semantic_invalidate = true;
+    }
+
+    pub fn transition_chars(&mut self, chars: Vec<char>) {
+        self.previous_char_pool = if self.char_pool.is_empty() {
+            vec!['0', '1']
+        } else {
+            self.char_pool.clone()
+        };
+        self.rebuild_char_pools(chars);
+        self.charset_transition_start = Some(Instant::now());
+    }
+
+    fn charset_wave_line_at(&self, now: Instant) -> Option<f32> {
+        let start = self.charset_transition_start?;
+        let elapsed_ms = now.saturating_duration_since(start).as_millis() as f32;
+        let progress = (elapsed_ms / CHARSET_TRANSITION_DURATION_MS as f32).clamp(0.0, 1.0);
+        Some(progress * (self.lines as f32 + 1.0))
+    }
+
+    fn rebuild_char_pools(&mut self, chars: Vec<char>) {
         self.chars = chars;
         if self.chars.is_empty() {
             self.chars.push('0');
@@ -1443,11 +1528,9 @@ impl Cloud {
             let idx = dist.sample(&mut self.mt);
             self.glitch_pool[i] = self.chars[idx];
         }
+    }
 
-        // Invalidate phosphor state to prevent stale ghost cells from the old
-        // charset leaking through after a charset switch. Without this, the
-        // phosphor decay pass could render dimmed cells using the old charset's
-        // base_fg colors at positions where droplets previously rendered.
+    fn reset_phosphor_state(&mut self) {
         let total = (self.cols as usize) * (self.lines as usize);
         self.phosphor.clear();
         self.phosphor.resize(total, 0);
@@ -1455,12 +1538,6 @@ impl Cloud {
         self.phosphor_base_fg.resize(total, None);
         self.phosphor_layer.clear();
         self.phosphor_layer.resize(total, 0);
-
-        // Flag semantic invalidation so the Terminal's LastFrame cache is
-        // fully invalidated on the next rain_at() call. This eliminates stale
-        // glyph residue that can persist when only dirty-region invalidation
-        // is used — charset changes are semantic mutations, not cell mutations.
-        self.semantic_invalidate = true;
     }
 
     fn recalc_droplets_per_sec(&mut self) {
@@ -2318,7 +2395,7 @@ impl Cloud {
         // each column adopts the new palette after its individual stagger delay.
         // This creates an organic desynchronized propagation wave.
         if let Some(transition_start) = self.transition_start {
-            let elapsed_ms = transition_start.elapsed().as_millis() as u64;
+            let elapsed_ms = now.saturating_duration_since(transition_start).as_millis() as u64;
             let mut all_ready = true;
             for (i, slot) in self.column_palette_slot.iter_mut().enumerate() {
                 if *slot != self.active_palette_slot {
@@ -2335,6 +2412,15 @@ impl Cloud {
             }
         }
 
+        let charset_wave_line = self.charset_wave_line_at(now);
+        if self.charset_transition_start.is_some_and(|start| {
+            now.saturating_duration_since(start).as_millis()
+                >= CHARSET_TRANSITION_DURATION_MS as u128
+        }) {
+            self.charset_transition_start = None;
+            self.previous_char_pool.clear();
+        }
+
         // Periodically re-seed RNG for very long sessions
         self.maybe_reseed_rng(now);
 
@@ -2345,7 +2431,7 @@ impl Cloud {
         // the transition, producing genuine inertia recovery rather than a
         // frozen-then-unfrozen snap.
         if let Some(rs) = self.resume_start {
-            let t = rs.elapsed().as_secs_f32();
+            let t = now.saturating_duration_since(rs).as_secs_f32();
             let normalized = (t / RESUME_EASE_DURATION_SECS).min(1.0);
             // Smoothstep: 3t² - 2t³ — slow start, fast middle, slow end.
             self.resume_blend = normalized * normalized * (3.0 - 2.0 * normalized);
@@ -2453,6 +2539,11 @@ impl Cloud {
         }
 
         let transitioning = self.transition_start.is_some();
+        let charset_wave_line = if self.charset_transition_start.is_some() {
+            charset_wave_line
+        } else {
+            None
+        };
 
         // Draw pass (split-borrows via DrawCtx)
         let draw_everything = force_draw_everything || time_for_glitch;
@@ -2472,6 +2563,8 @@ impl Cloud {
             color_map: &self.color_map,
             glitch_map: &self.glitch_map,
             char_pool: &self.char_pool,
+            previous_char_pool: &self.previous_char_pool,
+            charset_wave_line,
             mouse_col: self.mouse_col,
             mouse_line: self.mouse_line,
             flash_col: self.flash_col,
@@ -2575,7 +2668,9 @@ impl Cloud {
 
         // 5. Profile interpolation (smooth transition)
         if let Some(transition_start) = self.profile_transition_start {
-            let elapsed = transition_start.elapsed().as_secs_f32();
+            let elapsed = now
+                .saturating_duration_since(transition_start)
+                .as_secs_f32();
             let t = (elapsed / PROFILE_TRANSITION_SECS).min(1.0);
             // Smooth step interpolation
             let t = t * t * (3.0 - 2.0 * t);
@@ -2611,7 +2706,8 @@ impl Cloud {
         }
         // Expire flash effect after duration
         if let Some(flash_time) = self.flash_time {
-            if flash_time.elapsed().as_secs_f32() >= MOUSE_FLASH_DURATION_SECS {
+            if now.saturating_duration_since(flash_time).as_secs_f32() >= MOUSE_FLASH_DURATION_SECS
+            {
                 self.flash_time = None;
             }
         }
@@ -2622,8 +2718,13 @@ impl Cloud {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::Cloud;
-    use crate::constants::FULL_REDRAW_INTERVAL_FRAMES;
+    use crossterm::style::Color;
+
+    use super::{Cloud, DrawCtx};
+    use crate::constants::{
+        CHARSET_TRANSITION_DURATION_MS, COLOR_TRANSITION_DURATION_MS, FULL_REDRAW_INTERVAL_FRAMES,
+        MAX_PALETTE_SLOTS,
+    };
     use crate::frame::Frame;
     use crate::runtime::{BoldMode, ColorMode, ColorScheme, ShadingMode};
 
@@ -2694,5 +2795,176 @@ mod tests {
         cloud.rain_at(&mut frame, now + Duration::from_millis(16));
         assert!(frame.is_dirty_all());
         assert!(!cloud.force_draw_everything);
+    }
+
+    #[test]
+    fn color_transition_starts_immediately_and_completes() {
+        let mut cloud = make_cloud();
+        let mut frame = Frame::new(20, 10, cloud.palette.bg);
+        let now = Instant::now();
+
+        cloud.set_color_scheme(ColorScheme::Blue);
+
+        assert_eq!(cloud.color_scheme(), ColorScheme::Blue);
+        assert!(cloud.transition_start.is_some());
+        assert!(
+            cloud.column_transition_delay_ms.contains(&0),
+            "at least one column must update on the next frame"
+        );
+        assert!(cloud
+            .column_transition_delay_ms
+            .iter()
+            .all(|&delay| delay <= COLOR_TRANSITION_DURATION_MS));
+
+        cloud.transition_start =
+            Some(now - Duration::from_millis(COLOR_TRANSITION_DURATION_MS as u64 + 1));
+        cloud.rain_at(&mut frame, now);
+
+        assert!(cloud.transition_start.is_none());
+        assert!(cloud
+            .column_palette_slot
+            .iter()
+            .all(|slot| *slot == cloud.active_palette_slot));
+    }
+
+    #[test]
+    fn charset_change_enters_transition_state_without_full_swap() {
+        let mut cloud = make_cloud();
+        cloud.semantic_invalidate = false;
+        cloud.force_draw_everything = false;
+        let old_pool = cloud.char_pool.clone();
+
+        cloud.transition_chars(vec!['A', 'B']);
+
+        assert!(cloud.charset_transition_start.is_some());
+        assert_eq!(cloud.previous_char_pool, old_pool);
+        assert_ne!(cloud.char_pool, old_pool);
+        assert!(!cloud.semantic_invalidate);
+        assert!(!cloud.force_draw_everything);
+    }
+
+    #[test]
+    fn charset_wave_uses_old_rows_below_and_new_rows_above() {
+        let old_pool = ['0', '1'];
+        let new_pool = ['A', 'B'];
+        let glitch_map = bitvec::bitvec![0; 20];
+        let empty: &[Color] = &[];
+        let palette_slices: [&[Color]; MAX_PALETTE_SLOTS] = [empty; MAX_PALETTE_SLOTS];
+
+        let ctx = DrawCtx {
+            lines: 10,
+            full_width: false,
+            shading_distance: false,
+            bg: None,
+            color_mode: ColorMode::Mono,
+            bold_mode: BoldMode::Off,
+            glitchy: false,
+            last_glitch_time: Instant::now(),
+            next_glitch_time: Instant::now(),
+            palette_slices,
+            active_palette_slot: 0,
+            transitioning: false,
+            color_map: &[],
+            glitch_map: glitch_map.as_bitslice(),
+            char_pool: &new_pool,
+            previous_char_pool: &old_pool,
+            charset_wave_line: Some(3.0),
+            mouse_col: u16::MAX,
+            mouse_line: u16::MAX,
+            flash_col: u16::MAX,
+            flash_line: u16::MAX,
+            flash_time: None,
+        };
+
+        assert_eq!(ctx.get_char(1, 0, 0), 'B');
+        assert_eq!(ctx.get_char(8, 0, 0), '0');
+    }
+
+    #[test]
+    fn charset_transition_completes_and_commits_new_pool() {
+        let mut cloud = make_cloud();
+        let mut frame = Frame::new(20, 10, cloud.palette.bg);
+        let now = Instant::now();
+
+        cloud.transition_chars(vec!['A', 'B']);
+        cloud.charset_transition_start =
+            Some(now - Duration::from_millis(CHARSET_TRANSITION_DURATION_MS as u64 + 1));
+        cloud.rain_at(&mut frame, now);
+
+        assert!(cloud.charset_transition_start.is_none());
+        assert!(cloud.previous_char_pool.is_empty());
+        assert!(cloud.char_pool.iter().all(|ch| matches!(ch, 'A' | 'B')));
+    }
+
+    #[test]
+    fn pause_freezes_simulation_time() {
+        let mut cloud = make_cloud();
+        let mut frame = Frame::new(20, 10, cloud.palette.bg);
+        let now = Instant::now();
+
+        cloud.last_spawn_time = now - Duration::from_secs(1);
+        assert!(cloud.toggle_pause());
+        let last_spawn = cloud.last_spawn_time;
+        frame.clear_dirty();
+
+        cloud.rain_at(&mut frame, now + Duration::from_secs(5));
+
+        assert_eq!(cloud.last_spawn_time, last_spawn);
+        assert!(!frame.is_dirty_all() && frame.dirty_indices().is_empty());
+    }
+
+    #[test]
+    fn resume_resets_timing_debt() {
+        let mut cloud = make_cloud();
+        let now = Instant::now();
+
+        assert!(cloud.toggle_pause());
+        cloud.pause_time = Some(now - Duration::from_secs(5));
+        cloud.spawn_remainder = 42.0;
+        assert!(cloud.toggle_pause());
+
+        assert!(!cloud.pause);
+        assert_eq!(cloud.spawn_remainder, 0.0);
+        assert_eq!(cloud.resume_blend, 0.0);
+        assert!(cloud.resume_start.is_some());
+        assert!(cloud.last_spawn_time > now - Duration::from_secs(5));
+    }
+
+    #[test]
+    fn repeated_pause_resume_does_not_accumulate_timing_debt() {
+        let mut cloud = make_cloud();
+        let now = Instant::now();
+
+        for seconds in 1..=3 {
+            assert!(cloud.toggle_pause());
+            cloud.pause_time = Some(now - Duration::from_secs(seconds));
+            cloud.spawn_remainder = seconds as f32;
+            assert!(cloud.toggle_pause());
+
+            assert!(!cloud.pause);
+            assert_eq!(cloud.spawn_remainder, 0.0);
+            assert_eq!(cloud.resume_blend, 0.0);
+            assert!(cloud.resume_start.is_some());
+        }
+    }
+
+    #[test]
+    fn repeated_runtime_transitions_replace_pending_state_predictably() {
+        let mut cloud = make_cloud();
+        let first_pool = cloud.char_pool.clone();
+
+        cloud.set_color_scheme(ColorScheme::Blue);
+        cloud.set_color_scheme(ColorScheme::Red);
+        assert_eq!(cloud.color_scheme(), ColorScheme::Red);
+        assert!(cloud.transition_start.is_some());
+
+        cloud.transition_chars(vec!['A', 'B']);
+        let intermediate_pool = cloud.char_pool.clone();
+        cloud.transition_chars(vec!['X', 'Y']);
+
+        assert_eq!(cloud.previous_char_pool, intermediate_pool);
+        assert_ne!(cloud.previous_char_pool, first_pool);
+        assert!(cloud.char_pool.iter().all(|ch| matches!(ch, 'X' | 'Y')));
+        assert!(cloud.charset_transition_start.is_some());
     }
 }

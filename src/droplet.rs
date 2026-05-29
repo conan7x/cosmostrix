@@ -302,7 +302,7 @@ impl Droplet {
             }
 
             let is_glitched = ctx.is_glitched(line, self.bound_col);
-            let val = ctx.get_char(line, self.char_pool_idx);
+            let val = ctx.get_char(line, self.bound_col, self.char_pool_idx);
 
             let mut loc = CharLoc::Middle;
             if self.tail_put_line.is_some() && Some(line) == self.tail_put_line.map(|v| v + 1) {
@@ -317,6 +317,7 @@ impl Droplet {
                 && !is_glitched
                 && line != self.end_line
                 && !ctx.shading_distance
+                && !ctx.charset_transitioning()
                 && !draw_everything
             {
                 continue;

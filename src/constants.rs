@@ -100,9 +100,9 @@ pub const SIM_PRESSURE_SCALE_FACTOR: f64 = 0.7;
 pub const SIM_MIN_FRACTION: f64 = 0.5;
 
 /// Maximum simulation cap in seconds.
-/// 100ms is below the human perception threshold for smooth motion,
-/// preventing visible teleporting of droplet heads during frame spikes.
-pub const SIM_MAX_CAP_SECS: f64 = 0.1;
+/// Capping at one 30fps frame prevents visible catch-up jumps after stalls
+/// while still allowing brief scheduling hiccups to recover gracefully.
+pub const SIM_MAX_CAP_SECS: f64 = 1.0 / 30.0;
 
 /// Multiplier for frame_period to get sim_base.
 pub const SIM_BASE_MULTIPLIER: f64 = 3.0;
@@ -212,10 +212,15 @@ pub const TRAIL_EXPONENTIAL_K: f64 = 3.0;
 /// (by which time old droplets will have expired naturally).
 pub const MAX_PALETTE_SLOTS: usize = 4;
 
-/// Maximum stagger delay for column desynchronization (in milliseconds).
-/// Each column adopts the new palette at a slightly different time,
-/// creating an organic propagation wave instead of a robotic simultaneous switch.
-pub const COLUMN_TRANSITION_STAGGER_MS: u16 = 700;
+/// Palette transition duration in milliseconds.
+/// Short enough that a keypress visibly responds on the next frame while still
+/// leaving room for a cinematic cascade.
+pub const COLOR_TRANSITION_DURATION_MS: u16 = 240;
+
+/// Charset transition duration in milliseconds.
+/// Uses a top-to-bottom wave so glyph identity changes read as intentional
+/// motion instead of an instant full-screen snap.
+pub const CHARSET_TRANSITION_DURATION_MS: u16 = 240;
 
 /// Velocity boost for new-generation streams during an active transition.
 /// Creates a subtle feeling of an incoming wave (3-8% range, 5% default).
@@ -492,9 +497,8 @@ pub const EMERGENT_SPEED_SHIFT: f32 = 0.15;
 /// The simulation time scale interpolates from 0.0 → 1.0 over this period
 /// using a smoothstep S-curve, producing a cinematic inertia recovery that
 /// starts gently (no snap) and ends smoothly (no jank at full speed).
-/// 400ms is in the upper range of the perceptual sweet spot (200–400ms),
-/// providing a more gradual wake-up that eliminates residual temporal spikiness.
-pub const RESUME_EASE_DURATION_SECS: f32 = 0.4;
+/// 180ms is enough to eliminate catch-up harshness while keeping resume snappy.
+pub const RESUME_EASE_DURATION_SECS: f32 = 0.18;
 
 // ---------------------------------------------------------------------------
 // Hardening: drift correction & terminal safety
