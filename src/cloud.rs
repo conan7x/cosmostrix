@@ -2282,18 +2282,45 @@ impl Cloud {
                 }
 
                 if self.phosphor[pidx] <= PHOSPHOR_DEAD_THRESHOLD {
-                    // Phosphor is dead — clear cell and mark dirty
+                    // Phosphor is dead — clear cell and all ghost metadata
                     self.phosphor[pidx] = 0;
                     self.phosphor_base_fg[pidx] = None;
                     self.phosphor_base_ch[pidx] = '\0';
                     frame.set(col, line, blank_cell);
+                } else if self.phosphor[pidx] < PHOSPHOR_GLYPH_THRESHOLD {
+                    // Energy below glyph threshold — the character glyph is no
+                    // longer rendered, preventing stale cells from filling the
+                    // background with dark charset glyphs. Clear the tracked
+                    // character and render only a dim color patch (if any base
+                    // foreground was captured). This preserves the CRT afterglow
+                    // color fade without the "charset wallpaper" artifact.
+                    self.phosphor_base_ch[pidx] = '\0';
+                    if let Some(base_fg) = self.phosphor_base_fg[pidx] {
+                        let factor = self.phosphor[pidx] as f32 / 255.0;
+                        let ghost_fg = crate::palette::apply_brightness(base_fg, factor);
+                        frame.set(
+                            col,
+                            line,
+                            Cell {
+                                ch: ' ',
+                                fg: Some(ghost_fg),
+                                bg,
+                                bold: false,
+                            },
+                        );
+                    }
+                    // If no base_fg either (e.g., mono mode with expired glyph),
+                    // the cell effectively becomes invisible — no frame.set()
+                    // needed since a blank space on dark bg is indistinguishable.
                 } else if let Some(base_fg) = self.phosphor_base_fg[pidx] {
-                    // Render ghost cell with the original character at dimmed
-                    // brightness. Using the actual character (not a space) makes
-                    // trail afterglow look like fading text — this is critical
-                    // for perceived smoothness because the character texture
-                    // makes the per-frame brightness decay visible, whereas a
-                    // dim space only shows color change which is hard to perceive.
+                    // High-energy ghost cell: render with the original character
+                    // at dimmed brightness. Using the actual character (not a
+                    // space) makes trail afterglow look like fading text — this
+                    // is critical for perceived smoothness because the character
+                    // texture makes the per-frame brightness decay visible,
+                    // whereas a dim space only shows color change which is hard
+                    // to perceive. Only rendered when energy >= GLYPH_THRESHOLD
+                    // to prevent stale background charset fill.
                     let factor = self.phosphor[pidx] as f32 / 255.0;
                     let ghost_fg = crate::palette::apply_brightness(base_fg, factor);
                     let ghost_ch = self.phosphor_base_ch[pidx];
@@ -2309,8 +2336,10 @@ impl Cloud {
                     );
                 } else if self.phosphor_base_ch[pidx] != '\0' {
                     // Mono mode: no base_fg (ColorMode::Mono), but we have a
-                    // tracked character. Render the ghost cell with the original
-                    // glyph at dimmed brightness using the palette's dim color.
+                    // tracked character with high energy. Render the ghost cell
+                    // with the original glyph at dimmed brightness using the
+                    // palette's dim color. Only rendered when energy >=
+                    // GLYPH_THRESHOLD to prevent stale background charset fill.
                     let factor = self.phosphor[pidx] as f32 / 255.0;
                     let ghost_ch = self.phosphor_base_ch[pidx];
                     // Use the palette's darkest non-background color for the ghost
@@ -2681,6 +2710,18 @@ impl Cloud {
         let force_draw_everything = self.force_draw_everything;
         if force_draw_everything {
             frame.clear_with_bg(self.palette.bg);
+            // Clear stale ghost glyph characters on force_draw_everything.
+            // Without this, a full redraw (triggered by paste, focus regain,
+            // idle resync, etc.) would expose all phosphor_base_ch entries
+            // as visible background charset glyphs — the "ghost background"
+            // bug. Active trail cells will have their phosphor_base_ch
+            // repopulated by Pass 1 (current-gen cells) and Pass 2 (active
+            // droplet trail protection) of phosphor_decay_pass, so clearing
+            // here only affects stale afterglow cells that should not render
+            // character glyphs during a full redraw.
+            for ch in self.phosphor_base_ch.iter_mut() {
+                *ch = '\0';
+            }
             self.force_draw_everything = false;
         }
 
@@ -3754,5 +3795,306 @@ mod tests {
         assert!((progress_0 - 0.0).abs() < 0.001);
         assert!((progress_5 - 0.5).abs() < 0.001);
         assert!((progress_9 - 0.9).abs() < 0.001);
+    }
+
+    #[test]
+    fn paste_discard_does_not_increase_background_ghost_fill() {
+        // When force_draw_everything is triggered (simulating a paste/focus
+        // event), the background should NOT fill with ghost charset glyphs.
+        // The fix clears phosphor_base_ch on force_draw_everything, so stale
+        // afterglow cells don't render character glyphs during the full redraw.
+        use crate::constants::PHOSPHOR_GLYPH_THRESHOLD;
+
+        let mut cloud = make_cloud();
+        cloud.chars_per_sec = 8.0;
+        cloud.recalc_droplets_per_sec();
+
+        let now = Instant::now();
+        let mut frame = Frame::new(cloud.cols, cloud.lines, cloud.palette.bg);
+
+        // Run rain for several frames to build up phosphor state
+        cloud.last_spawn_time = now - Duration::from_secs(1);
+        cloud.last_phosphor_time = now;
+        for i in 0..10 {
+            cloud.rain_at(&mut frame, now + Duration::from_millis(i * 16));
+            frame.clear_dirty();
+        }
+
+        // Count ghost glyph cells before force_draw_everything
+        let ghost_fill_before: usize = cloud
+            .phosphor_base_ch
+            .iter()
+            .filter(|&&ch| ch != '\0')
+            .count();
+
+        // Trigger force_draw_everything (simulating paste/focus event)
+        cloud.force_draw_everything();
+        cloud.rain_at(&mut frame, now + Duration::from_millis(160));
+
+        // After force_draw_everything + one frame, count ghost glyph cells
+        // that are NOT part of active droplet trails (i.e., stale cells).
+        // Active trail cells will have been repopulated by Pass 1 & 2.
+        // The key invariant: stale cells should NOT have phosphor_base_ch set.
+        let ghost_fill_after: usize = cloud
+            .phosphor_base_ch
+            .iter()
+            .filter(|&&ch| ch != '\0')
+            .count();
+
+        // The ghost fill after should be LESS than or equal to before,
+        // because force_draw_everything clears all phosphor_base_ch and
+        // only active trail cells get repopulated.
+        assert!(
+            ghost_fill_after <= ghost_fill_before,
+            "force_draw_everything should not increase background ghost fill (before={}, after={})",
+            ghost_fill_before,
+            ghost_fill_after
+        );
+
+        // Also verify that remaining ghost cells all have high enough energy
+        // for glyph rendering (>= PHOSPHOR_GLYPH_THRESHOLD), meaning they're
+        // active trail cells that were just repopulated.
+        for (i, (&ch, &energy)) in cloud
+            .phosphor_base_ch
+            .iter()
+            .zip(cloud.phosphor.iter())
+            .enumerate()
+        {
+            if ch != '\0' {
+                assert!(
+                    energy >= PHOSPHOR_GLYPH_THRESHOLD,
+                    "ghost glyph cell {} should have energy >= GLYPH_THRESHOLD, got {}",
+                    i,
+                    energy
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn focus_event_does_not_repaint_stale_charset_background() {
+        // Simulating a focus-gained event (which triggers force_draw_everything)
+        // should not cause a full-screen ghost glyph repaint. We verify that
+        // after force_draw_everything, the ratio of cells with phosphor_base_ch
+        // set (relative to total cells) is low — not close to 100%.
+        let mut cloud = make_cloud();
+        cloud.chars_per_sec = 8.0;
+        cloud.recalc_droplets_per_sec();
+
+        let now = Instant::now();
+        let mut frame = Frame::new(cloud.cols, cloud.lines, cloud.palette.bg);
+
+        // Run rain for a while to build up phosphor everywhere
+        cloud.last_spawn_time = now - Duration::from_secs(1);
+        cloud.last_phosphor_time = now;
+        for i in 0..30 {
+            cloud.rain_at(&mut frame, now + Duration::from_millis(i * 16));
+            frame.clear_dirty();
+        }
+
+        // Now trigger force_draw_everything (simulating focus regained)
+        cloud.force_draw_everything();
+        cloud.rain_at(&mut frame, now + Duration::from_millis(480));
+        frame.clear_dirty();
+
+        let total = cloud.phosphor_base_ch.len();
+        let ghost_count: usize = cloud
+            .phosphor_base_ch
+            .iter()
+            .filter(|&&ch| ch != '\0')
+            .count();
+
+        // After force_draw_everything, ghost cells should only be active trail
+        // cells — a small fraction of the total. 80% threshold is generous;
+        // in practice it should be much lower.
+        let ghost_ratio = ghost_count as f32 / total as f32;
+        assert!(
+            ghost_ratio < 0.8,
+            "after focus event, ghost fill ratio should be low, got {:.1}% ({}/{})",
+            ghost_ratio * 100.0,
+            ghost_count,
+            total
+        );
+    }
+
+    #[test]
+    fn stale_phosphor_chars_expire() {
+        // A cell with phosphor_base_ch set should eventually stop rendering
+        // the glyph character as phosphor energy decays below the threshold.
+        // This tests the PHOSPHOR_GLYPH_THRESHOLD mechanism.
+        use crate::constants::PHOSPHOR_GLYPH_THRESHOLD;
+
+        let mut cloud = make_cloud();
+        cloud.chars_per_sec = 8.0;
+        cloud.recalc_droplets_per_sec();
+
+        let base = Instant::now();
+        let mut frame = Frame::new(cloud.cols, cloud.lines, cloud.palette.bg);
+
+        // Run rain to create phosphor state
+        cloud.last_spawn_time = base - Duration::from_secs(1);
+        cloud.last_phosphor_time = base;
+        cloud.rain_at(&mut frame, base);
+
+        // Find cells that have both phosphor energy and base_ch
+        let mut test_cells: Vec<usize> = Vec::new();
+        for (i, (&energy, &ch)) in cloud
+            .phosphor
+            .iter()
+            .zip(cloud.phosphor_base_ch.iter())
+            .enumerate()
+        {
+            if energy > 0 && ch != '\0' {
+                test_cells.push(i);
+            }
+        }
+
+        if test_cells.is_empty() {
+            // No phosphor cells to test — skip
+            return;
+        }
+
+        // Kill all droplets and prevent new spawning so phosphor can decay
+        // without being refreshed by active trail cells or new droplets.
+        for d in &mut cloud.droplets {
+            d.is_alive = false;
+        }
+        cloud.droplets_per_sec = 0.0;
+        cloud.spawn_remainder = 0.0;
+
+        // Simulate multiple frames of decay. We must clear the frame between
+        // rain_at calls to properly simulate the frame lifecycle: in the real
+        // pipeline, dead droplets' tail cleanup blanks old cells (fg=None),
+        // preventing Pass 1 from marking them as fresh. Since we killed all
+        // droplets before tail cleanup could run, we clear_with_bg to achieve
+        // the same effect — old cells are no longer current_gen, so Pass 1
+        // won't mark them fresh, and Pass 3 can decay them.
+        for frame_idx in 1..=15 {
+            let t = base + Duration::from_millis(frame_idx * 17);
+            cloud.last_phosphor_time = base + Duration::from_millis((frame_idx - 1) * 17);
+            frame.clear_with_bg(cloud.palette.bg);
+            cloud.rain_at(&mut frame, t);
+        }
+
+        // Now check: cells that had phosphor_base_ch should have it cleared
+        // if their energy dropped below the glyph threshold.
+        let mut expired_count = 0;
+        for &i in &test_cells {
+            if i < cloud.phosphor_base_ch.len() {
+                let energy = cloud.phosphor[i];
+                let ch = cloud.phosphor_base_ch[i];
+                if energy < PHOSPHOR_GLYPH_THRESHOLD {
+                    // Glyph should be cleared
+                    assert_eq!(
+                        ch, '\0',
+                        "cell {} with energy {} < GLYPH_THRESHOLD should have cleared base_ch",
+                        i, energy
+                    );
+                    expired_count += 1;
+                }
+            }
+        }
+
+        // At least some cells should have expired (energy < threshold)
+        assert!(
+            expired_count > 0,
+            "at least some phosphor_base_ch entries should have expired after 15 frames of decay (tested {} cells)",
+            test_cells.len()
+        );
+    }
+
+    #[test]
+    fn active_trail_afterglow_still_has_glyphs() {
+        // Active trail cells should still show subtle glyph afterglow with
+        // their original characters. This verifies that the glyph threshold
+        // mechanism preserves organic smoothness for recently drawn trails.
+        use crate::constants::PHOSPHOR_GLYPH_THRESHOLD;
+
+        let mut cloud = make_cloud();
+        cloud.chars_per_sec = 8.0;
+        cloud.recalc_droplets_per_sec();
+
+        let now = Instant::now();
+        let mut frame = Frame::new(cloud.cols, cloud.lines, cloud.palette.bg);
+
+        // Run rain to spawn and advance droplets
+        cloud.last_spawn_time = now - Duration::from_secs(1);
+        cloud.last_phosphor_time = now;
+        cloud.rain_at(&mut frame, now);
+
+        // Find living droplets
+        let living: Vec<_> = cloud.droplets.iter().filter(|d| d.is_alive).collect();
+        if living.is_empty() {
+            return;
+        }
+
+        // Verify that cells within living droplet ranges have both
+        // phosphor energy >= GLYPH_THRESHOLD and phosphor_base_ch set.
+        let lines = cloud.lines;
+        let mut glyph_count = 0;
+        for d in &living {
+            let start = d.tail_put_line.map(|v| v.saturating_add(1)).unwrap_or(0);
+            for line in start..=d.head_put_line {
+                if line >= lines {
+                    break;
+                }
+                let pidx = d.bound_col as usize * lines as usize + line as usize;
+                if pidx < cloud.phosphor.len() {
+                    let energy = cloud.phosphor[pidx];
+                    let ch = cloud.phosphor_base_ch[pidx];
+                    if energy >= PHOSPHOR_GLYPH_THRESHOLD && ch != '\0' {
+                        glyph_count += 1;
+                    }
+                }
+            }
+        }
+
+        assert!(
+            glyph_count > 0,
+            "active trail cells should have glyph afterglow (energy >= GLYPH_THRESHOLD and base_ch set)"
+        );
+    }
+
+    #[test]
+    fn background_remains_clean_after_safe_redraw() {
+        // After a safe redraw (force_draw_everything), the background should
+        // not contain stale charset glyphs. Only active trail cells should
+        // have phosphor_base_ch set, and only with energy >= GLYPH_THRESHOLD.
+        use crate::constants::PHOSPHOR_GLYPH_THRESHOLD;
+
+        let mut cloud = make_cloud();
+        cloud.chars_per_sec = 8.0;
+        cloud.recalc_droplets_per_sec();
+
+        let now = Instant::now();
+        let mut frame = Frame::new(cloud.cols, cloud.lines, cloud.palette.bg);
+
+        // Run rain for a while to build up extensive phosphor state
+        cloud.last_spawn_time = now - Duration::from_secs(1);
+        cloud.last_phosphor_time = now;
+        for i in 0..20 {
+            cloud.rain_at(&mut frame, now + Duration::from_millis(i * 16));
+            frame.clear_dirty();
+        }
+
+        // Trigger safe redraw
+        cloud.force_draw_everything();
+        cloud.rain_at(&mut frame, now + Duration::from_millis(320));
+        frame.clear_dirty();
+
+        // Check that no cells have phosphor_base_ch set with energy below
+        // the glyph threshold — this would indicate stale ghost glyphs.
+        let mut stale_glyph_count = 0;
+        for (&ch, &energy) in cloud.phosphor_base_ch.iter().zip(cloud.phosphor.iter()) {
+            if ch != '\0' && energy < PHOSPHOR_GLYPH_THRESHOLD {
+                stale_glyph_count += 1;
+            }
+        }
+
+        assert_eq!(
+            stale_glyph_count, 0,
+            "no cells should have ghost glyphs with energy below GLYPH_THRESHOLD after safe redraw (found {})",
+            stale_glyph_count
+        );
     }
 }

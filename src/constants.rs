@@ -365,6 +365,20 @@ pub const PHOSPHOR_TAIL_RESIDUAL: u8 = 120;
 /// Below this energy, the cell is cleared to blank.
 pub const PHOSPHOR_DEAD_THRESHOLD: u8 = 6;
 
+/// Minimum phosphor energy for rendering the original character glyph in
+/// ghost cells. Below this threshold, the ghost cell renders as a blank
+/// space (or dim color-only patch) instead of the original character.
+/// This prevents stale cells from filling the background with dark charset
+/// glyphs — especially during force_draw_everything events (paste, focus
+/// regain) where a full redraw would expose all ghost glyphs at once.
+///
+/// At 96 (~38% of max), ghost characters are visible for about the first
+/// ~400ms of afterglow (from PHOSPHOR_TAIL_RESIDUAL=120), then the glyph
+/// vanishes and only a dim color patch remains for the final ~600ms of
+/// energy decay. This preserves the "fading text" cinematic effect for
+/// recently passed trails while preventing stale background charset fill.
+pub const PHOSPHOR_GLYPH_THRESHOLD: u8 = 96;
+
 /// Per-layer phosphor decay rate multiplier (far=fast, near=slow).
 pub const PHOSPHOR_LAYER_DECAY_MULT: [f32; PARALLAX_LAYERS] = [1.6, 1.0, 0.7];
 
