@@ -1,4 +1,5 @@
-// Copyright (c) 2026 rezky_nightky
+// Copyright (C) 2026 rezky_nightky
+// SPDX-License-Identifier: GPL-3.0-only
 
 //! CLI presentation helpers: help templates, clap styling, color/charset scheme
 //! parsing, cycling, and terminal color detection.

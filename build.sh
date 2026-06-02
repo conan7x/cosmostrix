@@ -2,6 +2,9 @@
 # =============================================================================
 # COSMOSTRIX BUILD AUTOMATION SCRIPT
 # =============================================================================
+# Copyright (C) 2026 rezky_nightky
+# SPDX-License-Identifier: GPL-3.0-only
+# =============================================================================
 # Optimized build script with intelligent core detection and advanced caching
 # Author: rezky_nightky
 # Version: Stellar 4.0
@@ -317,6 +320,22 @@ run_loc_check() {
         fi
 }
 
+run_header_check() {
+        log_step "Checking SPDX license headers..."
+
+        if [ ! -x "scripts/check-headers.sh" ]; then
+                log_warning "scripts/check-headers.sh not found or not executable (skipping)"
+                return 0
+        fi
+
+        if bash scripts/check-headers.sh; then
+                log_success "Header check passed"
+        else
+                log_error "Header check failed"
+                return 1
+        fi
+}
+
 run_comprehensive_check() {
         local failed=0
 
@@ -327,6 +346,7 @@ run_comprehensive_check() {
         check_rust_toolchain || ((failed++))
         run_fmt_check || ((failed++))
         run_loc_check || ((failed++))
+        run_header_check || ((failed++))
         run_clippy || ((failed++))
         run_tests || ((failed++))
         run_audit || ((failed++))

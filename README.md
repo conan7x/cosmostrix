@@ -347,7 +347,7 @@ Create a release by pushing a `v*` tag. See `workflow/about-ci.md` for CI and re
 
 ## Contributing
 
-PRs and issues are welcome. Please run `cargo fmt` and `cargo clippy` before submitting.
+PRs and issues are welcome. Please run `cargo fmt` and `cargo clippy` before submitting. See [RULES.md](RULES.md) for project conventions.
 
 ## Support
 

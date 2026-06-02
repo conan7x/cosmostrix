@@ -1,4 +1,5 @@
-// Copyright (c) 2026 rezky_nightky
+// Copyright (C) 2026 rezky_nightky
+// SPDX-License-Identifier: GPL-3.0-only
 
 //! Cosmostrix — High-performance cinematic Matrix rain renderer for the terminal.
 //!

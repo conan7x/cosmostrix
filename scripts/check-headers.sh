@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# =============================================================================
+# COSMOSTRIX SPDX HEADER CHECK
+# =============================================================================
+# Scans all core/code/config/script files for required SPDX-License-Identifier
+# headers. Fails if any included file is missing the header.
+#
+# Included file types: *.rs, *.sh, *.toml, *.yml, *.yaml
+# Excluded: target/, .git/, Cargo.lock, *.md, *.txt, assets, media
+#
+# Usage: scripts/check-headers.sh
+# =============================================================================
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Colors
+RED='\033[0;31m'
+NC='\033[0m'
+
+MISSING=0
+CHECKED=0
+
+while IFS= read -r -d '' file; do
+    CHECKED=$((CHECKED + 1))
+    if ! head -10 "$file" | grep -q "SPDX-License-Identifier"; then
+        echo -e "${RED}MISSING SPDX header: ${file}${NC}"
+        MISSING=$((MISSING + 1))
+    fi
+done < <(
+    find "$REPO_ROOT" \
+        \( -name '*.rs' -o -name '*.sh' -o -name '*.toml' -o -name '*.yml' -o -name '*.yaml' \) \
+        -not -path '*/target/*' \
+        -not -path '*/.git/*' \
+        -not -name 'Cargo.lock' \
+        -print0 2>/dev/null
+)
+
+if [[ "$MISSING" -eq 0 ]]; then
+    echo "OK: $CHECKED files checked, all have SPDX-License-Identifier"
+    exit 0
+else
+    echo -e "${RED}FAIL: $MISSING of $CHECKED files are missing SPDX headers${NC}"
+    exit 1
+fi

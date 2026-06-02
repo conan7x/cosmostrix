@@ -1,4 +1,5 @@
-// Copyright (c) 2026 rezky_nightky
+// Copyright (C) 2026 rezky_nightky
+// SPDX-License-Identifier: GPL-3.0-only
 
 //! Core tests for the cloud module (rain, pause/resume, transitions, spawn).
 
