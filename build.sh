@@ -3,7 +3,7 @@
 # COSMOSTRIX BUILD AUTOMATION SCRIPT
 # =============================================================================
 # Copyright (C) 2026 rezky_nightky
-# SPDX-License-Identifier: GPL-3.0-only
+# SPDX-License-Identifier: MIT
 # =============================================================================
 # Optimized build script with intelligent core detection and advanced caching
 # Author: rezky_nightky
@@ -323,9 +323,9 @@ run_loc_check() {
 run_header_check() {
         log_step "Checking SPDX license headers..."
 
-        if [ ! -x "scripts/check-headers.sh" ]; then
-                log_warning "scripts/check-headers.sh not found or not executable (skipping)"
-                return 0
+        if [ ! -f "scripts/check-headers.sh" ]; then
+                log_error "scripts/check-headers.sh not found"
+                return 1
         fi
 
         if bash scripts/check-headers.sh; then

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Copyright (C) 2026 rezky_nightky
-# SPDX-License-Identifier: GPL-3.0-only
+# SPDX-License-Identifier: MIT
 #
 # =============================================================================
 # COSMOSTRIX RUST SOURCE FILE LOC CHECK
