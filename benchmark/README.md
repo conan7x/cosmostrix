@@ -2,47 +2,47 @@
 
 This folder contains the benchmark script and reference results for Cosmostrix.
 
-## v2.1.0 reference results
+## v2.1.0 reference results (measured)
 
-Local measurements from the premium benchmark (`--benchmark`) on a CI-style cloud
-runner. These numbers are **machine-dependent** — they depend on CPU, terminal
-size, density, color mode, and OS kernel scheduler behavior. Treat them as a
-baseline example, not a portable promise.
+Real measurements from the premium benchmark (`--benchmark`) and legacy CI
+benchmark (`--bench-frames`) on a cloud runner. These numbers are
+**machine-dependent** — they depend on CPU, terminal size, density, color mode,
+and OS kernel scheduler behavior. Treat them as a baseline example, not a
+portable promise.
 
 ### Environment
 
 | Item | Value |
 |---|---|
 | Cosmostrix | v2.1.0 |
-| CPU | Intel Xeon, 4 cores, x86-64-v4 capable |
-| OS | Linux 5.10 (x86_64) |
+| CPU | Intel Xeon (4 cores, 2.8 GHz), x86-64-v4 capable (AVX-512, AVX2, BMI2, FMA) |
+| OS | Linux 5.10.134 (x86_64) |
 | Rust | 1.96.0 |
-| Build profile | `pro-linux-v3` (fat LTO, x86-64-v3 baseline) |
-| Terminal size | 120×40 (headless, `TERM=dumb`) |
+| Terminal size | 120x40 (headless, `TERM=dumb`) |
 | Target FPS | 60 |
 | Density | 1.00 |
 
-### Performance summary
+### Performance summary (premium benchmark, 5s + 2s warmup)
 
 | Metric | `release` (x86-64 baseline) | `pro-linux-v3` (AVX2) |
 |---|---|---|
-| Avg FPS | 8,836 | 9,237 |
-| Peak FPS | 9,744 | 9,760 |
-| Avg frame time | 0.141 ms | 0.134 ms |
-| P99 frame time | 0.191 ms | 0.160 ms |
+| Avg FPS | 9,910 | 10,283 |
+| Peak FPS | 10,154 | 10,396 |
+| Avg frame time | 0.124 ms | 0.118 ms |
+| P99 frame time | 0.167 ms | 0.142 ms |
 | Frame jitter | low | low |
-| Avg dirty cells/frame | 147 (3.06%) | 150 (3.12%) |
-| Dirty glyphs/s | 1,298,754 | 1,384,007 |
-| ANSI bytes/s | 24,676,320 | 26,296,131 |
-| Active streams avg | 124 | 125 |
+| Avg dirty cells/frame | 145 (3.02%) | 148 (3.08%) |
+| Dirty glyphs/s | 1,437,190 | 1,520,820 |
+| ANSI bytes/s | 27,306,601 | 28,895,579 |
+| Active streams avg | 126 | 127 |
 | Full redraw ratio | 0.0% | 0.0% |
 
-### Legacy CI benchmark (`--bench-frames`)
+### Legacy CI benchmark (`--bench-frames 10000`)
 
 | Profile | Frames | Elapsed | FPS |
 |---|---|---|---|
-| `release` | 10,000 | 1.399s | 7,148 |
-| `pro-linux-v3` | 10,000 | 1.264s | 7,911 |
+| `release` | 10,000 | 1.142s | 8,757 |
+| `pro-linux-v3` | 10,000 | 1.155s | 8,660 |
 
 ### Interpretation
 
@@ -51,8 +51,8 @@ baseline example, not a portable promise.
   residue cleanup, bracketed-paste burst suppression, and Tab/focus safety
   — all of which add per-frame work compared to earlier versions.
 - **Performance remains well above the 60 FPS target.** Even in the
-  worst-case headless benchmark, throughput exceeds 7,000 FPS, which is
-  over 100x the 60 FPS target. Real terminal rendering is I/O-bound (ANSI
+  worst-case headless benchmark, throughput exceeds 8,600 FPS, which is
+  over 140x the 60 FPS target. Real terminal rendering is I/O-bound (ANSI
   escape sequence throughput to the terminal emulator), not simulation-bound.
 - **Dirty cell ratio (~3%) is the key efficiency metric.** Cosmostrix uses
   differential (dirty-cell) rendering — only cells that changed since the last
@@ -64,9 +64,11 @@ baseline example, not a portable promise.
   simulation/draw-computation path without actual terminal I/O, which gives
   a stable throughput ceiling. Interactive FPS depends on terminal emulator
   speed, window compositor, and display refresh rate.
-- **`pro-linux-v3` vs `release`**: The AVX2-optimized build is ~5-10% faster
-  on the simulation path. In interactive use the difference is usually
-  imperceptible because terminal I/O dominates.
+- **`pro-linux-v3` vs `release`**: The AVX2-optimized build is ~3-4% faster
+  on the premium benchmark simulation path. The legacy CI benchmark shows
+  comparable results between the two profiles, as its shorter warmup phase
+  does not fully amortize the AVX2 codegen overhead. In interactive use the
+  difference is usually imperceptible because terminal I/O dominates.
 
 ## How to reproduce
 
